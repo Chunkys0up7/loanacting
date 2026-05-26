@@ -1,0 +1,148 @@
+# Clarifications — Loan-Actor Foundation
+
+**Spec**: [`spec.md`](spec.md) · **Intent**: [`intents/0001-foundation-loan-as-actor.md`](../../intents/0001-foundation-loan-as-actor.md)
+**Resolves**: Q1–Q7 listed in spec.md and intent 0001.
+**Date**: 2026-05-26
+
+Each resolution below is now binding for `/speckit-plan` and downstream. Reopening a resolved question requires an amendment intent.
+
+---
+
+## Q1 — Language: Elixir or pure Erlang?
+
+**Resolution: Elixir 1.16+ on Erlang/OTP 26+.**
+
+**Rationale.**
+- Equivalent runtime semantics; Elixir is a strict superset of "what's possible" via OTP.
+- Better tooling (Mix, ExUnit, StreamData, Credo, Dialyxir) reduces test-discipline friction.
+- Phoenix/Bandit gives us a clean HTTP path for AG-UI without bringing a heavyweight web framework if we don't want LiveView.
+- Larger talent pool than pure Erlang.
+- The constitution mandates a `DiaryStore` behaviour; Elixir's `@behaviour` and `defprotocol` make this ergonomic.
+
+**Trade-off accepted.** Elixir's macro layer adds compile-time complexity; team must read Elixir without leaning on macros that obscure runtime behavior. We will not invent project-specific macros in foundation.
+
+**Locked decisions.**
+- `mix new apps/loan_actor --sup` for the supervised application.
+- `Elixir 1.16` / `OTP 26` as floor. CI pins these. Upgrades require an amendment.
+
+---
+
+## Q2 — Diary backing store for foundation
+
+**Resolution: Mnesia, behind a `DiaryStore` behaviour with one alternative implementation.**
+
+**Rationale.**
+- Mnesia ships with OTP, supports atomic transactions, and gives us indexed access by `loan_id`.
+- Constitution Principle IV demands an append-only, chain-linked store. Mnesia tables marked `type: :ordered_set` with `disc_copies` satisfy ordering and durability.
+- The `DiaryStore` behaviour decouples future moves (object store, append-only log like Bookkeeper) without disturbing the loan actor.
+
+**Implementations required in foundation.**
+1. `LoanActor.Diary.Mnesia` (primary) — durable, ordered, transactional.
+2. `LoanActor.Diary.File` (alternative) — newline-delimited JSON in a per-loan file. Slower; used in tests to prove the abstraction is real and to support hermetic CI runs.
+
+Both implementations MUST pass the same property-based test suite.
+
+**Locked decisions.**
+- Diary entries are written within the same Mnesia transaction as the state mutation they cause. (No two-phase write.)
+- `prev_hash` is computed at write time from the previous entry's `entry_id || payload_hash`.
+- PII never enters the diary; the `payload_hash` covers a payload that has already passed through the PII-stripping layer (foundation: a stub that asserts allowed types).
+
+---
+
+## Q3 — AG-UI endpoint host
+
+**Resolution: Served directly from BEAM via Bandit + Plug. No Node CopilotRuntime layer in foundation.**
+
+**Rationale.**
+- One fewer process to operate, deploy, and version.
+- AG-UI is well-specified (17 events, SSE); implementing the producer in Elixir is bounded — the `copilotkit` skill at `.claude/skills/copilotkit/references/ag-ui-protocol.md` is the reference.
+- A future intent can introduce CopilotRuntime if/when its features (e.g., multi-agent fan-out, thread persistence) become necessary. Foundation does not need them.
+
+**Locked decisions.**
+- Bandit (not Cowboy) for the HTTP server. Bandit is the modern default and the recommended fit for SSE.
+- Plug.Router for the AG-UI endpoint(s). No Phoenix in foundation — adding it later is a separate intent.
+- Endpoint shape: `POST /loans/:loan_id/ag-ui` returns `text/event-stream`.
+
+---
+
+## Q4 — Loan state shape
+
+**Resolution: Typed Elixir struct `LoanActor.State` with an explicit `transition/2` function gating mutations.**
+
+**Rationale.**
+- A typed struct makes diary replay deterministic and `Dialyxir`-checkable.
+- A central `transition/2` enforces that every mutation is paired with a diary append (Constitution Principle IV) — invariant enforced by the type signature, not by reviewer discipline.
+
+**Locked decisions.**
+- `defstruct [:loan_id, :status, :goals, :context, :version]` (initial set; expandable via amendment).
+- `status` is an atom drawn from a fixed enum documented in `data-model.md`.
+- `goals` is a list of `LoanActor.Goal` structs (also typed).
+- `version` is a monotonic counter for optimistic concurrency on snapshots — incremented on every transition.
+- `transition/2` is the **only** public mutation entrypoint. Any direct struct update outside `transition/2` is a constitution violation and is detected by a custom Credo check.
+
+---
+
+## Q5 — Loop topology: one GenServer or three?
+
+**Resolution: Single GenServer per loan with three explicit responsibilities (`handle_call`/`handle_cast` for reactive, `handle_info` for periodic, and an internal `:plan` self-message for planning). Revisit if profiling shows a bottleneck.**
+
+**Rationale.**
+- Simpler ownership of the loan's state — one process, one truth.
+- Three processes would multiply the surface area for race conditions and complicate diary atomicity.
+- Performance budget (NFR-001) is well within single-GenServer capacity per loan; bottleneck would have to come from shared resources (Mnesia), not the actor itself.
+
+**Locked decisions.**
+- The single GenServer is `LoanActor.Server`. Its supervisor is `LoanActor.Supervisor` (one-for-one).
+- The "three loops" are documented as code conventions in the module docs and enforced by a Credo check that prohibits adding additional `handle_*` clauses without a comment tagging the loop.
+
+**Kill criterion.** If load testing (SC-001) shows the actor exhibits mailbox backpressure or planning starves reactive handlers, we revisit via amendment intent.
+
+---
+
+## Q6 — Idempotency key
+
+**Resolution: `(event_id, source)` composite key.**
+
+**Rationale.**
+- `event_id` alone risks collisions between independent sources (e.g., two integrators generating the same UUID by accident or by replay across vendors).
+- `(event_id, source)` accepts re-delivery from a given source as a no-op while admitting legitimate events that happen to share an `event_id` from a different source.
+- Storage cost is negligible; `source` is a short atom.
+
+**Locked decisions.**
+- The Event struct gains `source` as a required field with a fixed enum (foundation: `:operator`, `:system`, `:test`). Adding new sources requires an amendment.
+- The idempotency check is a Mnesia `read` keyed on `{loan_id, event_id, source}` within the transaction that would append the diary entry. Hit → no-op + return `:duplicate`.
+
+---
+
+## Q7 — Operator authentication for foundation
+
+**Resolution: Env-injected `OPERATOR_ID` (no real auth). Implementations MUST be structured to make a future auth-intent change minimal.**
+
+**Rationale.**
+- Intent 0001 explicitly defers real auth.
+- An env-injected ID supports the foundational diary-attribution requirement (Constitution Principle VII: every actor that mutates state has identity in the diary).
+- Real auth (OIDC, role-based, possibly per-tenant) is a non-trivial intent and must not be conflated with the runtime foundation.
+
+**Locked decisions.**
+- HTTP middleware reads `x-operator-id` header (preferred) or `OPERATOR_ID` env var (fallback for local dev).
+- Every state-mutating endpoint requires the header in production builds (controlled by `Application.get_env(:loan_actor, :require_operator_id, true)`); tests can disable.
+- A future amendment will replace the middleware with a real auth plug. The interface (`Plug.Conn.assigns[:operator_id]`) MUST remain stable.
+
+---
+
+## Summary of locked architectural decisions
+
+| Concern | Decision |
+|---|---|
+| Language | Elixir 1.16+ / OTP 26+ |
+| Web layer | Bandit + Plug.Router (no Phoenix in foundation) |
+| Diary store | Mnesia primary; File alternative; both behind `DiaryStore` behaviour |
+| State shape | Typed struct `LoanActor.State` with single mutation gate `transition/2` |
+| Loop topology | Single GenServer with documented three-loop handler convention |
+| Idempotency | Composite `(event_id, source)` key |
+| Auth | Env/header-injected operator id (real auth deferred) |
+| Build system | Mix umbrella (frontend lives at `apps/web/`, backend at `apps/loan_actor/`) |
+| AG-UI endpoint | `POST /loans/:loan_id/ag-ui` returning `text/event-stream` |
+| HITL mechanism | AG-UI `CustomEvent` + CopilotKit `useHumanInTheLoop` |
+
+These decisions become inputs to `/speckit-plan`.

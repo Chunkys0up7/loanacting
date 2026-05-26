@@ -1,0 +1,58 @@
+# Checklist — Test Coverage (Taxonomic)
+
+Per Constitution Principle V. Coverage is by **category**, not by percentage. A PR description maps each applicable category to test files; missing categories are blockers unless explicitly N/A with justification.
+
+## Categories
+
+### Happy path
+- [ ] At least one test exercises the documented success path.
+- [ ] The test uses a factory from `apps/loan_actor/test/support/factory.ex` for any non-trivial input.
+
+### Boundary
+- [ ] Inputs at the minimum, maximum, and zero values are tested.
+- [ ] Empty collections, nil values, and the largest sane size are covered.
+- [ ] Time-based logic is tested at the configured-interval edge.
+
+### Error
+- [ ] Every documented error return is exercised.
+- [ ] Malformed inputs (bad enum values, missing required fields) produce the documented error, not a crash.
+- [ ] No `rescue` that swallows an unexpected exception silently.
+
+### Race
+- [ ] If two callers can interact with the same resource, a test exercises that overlap.
+- [ ] Tests use `Task.async_stream`, `:erlang.send_after`, or controlled scheduling to force interleavings.
+- [ ] For diary writes: parallel append to the same loan is tested (must serialize correctly).
+
+### Replay
+- [ ] If the change adds or modifies a state-mutating handler, a test replays the diary and asserts byte-equal state.
+- [ ] `verify_chain/1` is invoked in the test.
+
+### Regulatory *(N/A for foundation)*
+- [ ] When introduced by a future intent (e.g., RESPA/TRID/QM), this row is filled. Foundation marks N/A.
+
+### Security
+- [ ] PII patterns: any new event field is checked against `priv/pii_patterns.yml`.
+- [ ] Diary tampering: if the change touches diary write paths, a tamper-then-verify test is added.
+- [ ] Auth: if an endpoint is added, `OperatorPlug` test covers 401 absent and ID propagation present.
+- [ ] No new dependency provides LLM client capability (covered by Credo + grep test).
+
+### Contract
+- [ ] If `contracts/*.md` changed: the corresponding backend snapshot test and frontend type definitions also changed in the same PR.
+- [ ] Cross-stack contract test (`apps/web/test/e2e/contract.spec.ts`) green.
+
+### Performance
+- [ ] If the change could affect NFR budgets, `mix test.load` was run locally and the report attached to the PR description.
+- [ ] If the change is in a hot path (event ingestion, diary append, AG-UI emission), an explicit Benchee microbenchmark is added.
+
+## Process
+
+- [ ] PR description includes a table:  `| category | file(s) | notes |`
+- [ ] N/A rows include a one-sentence justification.
+- [ ] CI shows green across `mix test`, `mix dialyzer`, `mix credo --strict`, `mix test.load` (or nightly job), `npm test`, Playwright e2e.
+
+## Forbidden in tests
+
+- Mocks at architectural boundaries (real BEAM, real Mnesia / file diary, real AG-UI stream).
+- Hand-rolled fixtures of opaque provenance — use factories.
+- "Sleep" as a synchronization primitive (use `assert_receive`, polling helpers, or `:sys.get_state` with explicit waits).
+- Tests skipped with `@tag :skip` without an associated open intent or issue.

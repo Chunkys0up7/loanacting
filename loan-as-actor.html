@@ -1,0 +1,1719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan-as-Actor — A New Architecture for Mortgage Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0C0E12;
+  --bg-elevated: #13161C;
+  --bg-card: #1A1D25;
+  --text: #E8E6E1;
+  --text-muted: #9A978E;
+  --text-dim: #5C5A54;
+  --accent: #D4924B;
+  --accent-glow: rgba(212, 146, 75, 0.15);
+  --accent2: #5BA0C4;
+  --accent3: #6EBF8B;
+  --danger: #C75D5D;
+  --purple: #9B8EC4;
+  --border: rgba(255,255,255,0.06);
+  --serif: 'DM Serif Display', Georgia, serif;
+  --sans: 'DM Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --max-w: 860px;
+  --gutter: 2rem;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; font-size: 17px; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  line-height: 1.72;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection { background: var(--accent); color: var(--bg); }
+
+a { color: var(--accent2); text-decoration: none; border-bottom: 1px solid rgba(91,160,196,0.3); transition: border-color 0.2s; }
+a:hover { border-color: var(--accent2); }
+
+/* --- NAV --- */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(12,14,18,0.85); backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 var(--gutter);
+  opacity: 0; transform: translateY(-100%);
+  transition: all 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+nav.visible { opacity: 1; transform: translateY(0); }
+nav .nav-inner {
+  max-width: var(--max-w); margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 52px;
+}
+nav .nav-logo { font-family: var(--serif); font-size: 1rem; color: var(--accent); letter-spacing: 0.02em; }
+nav .nav-links { display: flex; gap: 1.5rem; }
+nav .nav-links a { font-size: 0.76rem; color: var(--text-muted); border: none; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 500; transition: color 0.2s; }
+nav .nav-links a:hover { color: var(--text); }
+
+/* --- LAYOUT --- */
+.container { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--gutter); }
+.wide-container { max-width: 1080px; margin: 0 auto; padding: 0 var(--gutter); }
+
+section { padding: 6rem 0; position: relative; }
+section + section { border-top: 1px solid var(--border); }
+
+/* --- HERO --- */
+.hero {
+  min-height: 100vh; display: flex; flex-direction: column; justify-content: center;
+  padding: 4rem 0 6rem; border-bottom: none;
+  position: relative; overflow: hidden;
+}
+.hero::before {
+  content: ''; position: absolute; top: -40%; right: -20%; width: 80vw; height: 80vw;
+  background: radial-gradient(ellipse, rgba(212,146,75,0.06) 0%, transparent 65%);
+  pointer-events: none;
+}
+.hero-eyebrow {
+  font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
+  letter-spacing: 0.2em; color: var(--accent); margin-bottom: 1.5rem;
+  display: flex; align-items: center; gap: 0.75rem;
+}
+.hero-eyebrow::before {
+  content: ''; width: 32px; height: 1px; background: var(--accent);
+}
+.hero h1 {
+  font-family: var(--serif); font-size: clamp(2.8rem, 6vw, 4.2rem);
+  line-height: 1.1; color: var(--text); margin-bottom: 1.5rem;
+  max-width: 700px;
+}
+.hero h1 em { font-style: normal; color: var(--accent); }
+.hero .subtitle {
+  font-size: 1.15rem; color: var(--text-muted); max-width: 560px;
+  line-height: 1.65; margin-bottom: 2.5rem;
+}
+.hero-meta {
+  display: flex; gap: 2rem; font-size: 0.78rem; color: var(--text-dim);
+  font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.08em;
+}
+
+/* --- TYPOGRAPHY --- */
+h2 {
+  font-family: var(--serif); font-size: clamp(1.8rem, 3.5vw, 2.4rem);
+  line-height: 1.15; margin-bottom: 1rem;
+}
+h2 em { font-style: normal; color: var(--accent); }
+h3 {
+  font-family: var(--sans); font-size: 1.15rem; font-weight: 700;
+  color: var(--text); margin: 2.5rem 0 0.75rem; letter-spacing: -0.01em;
+}
+p { margin-bottom: 1.25rem; color: var(--text-muted); }
+p strong { color: var(--text); font-weight: 500; }
+
+.lead { font-size: 1.1rem; color: var(--text-muted); line-height: 1.7; margin-bottom: 2rem; max-width: 600px; }
+.section-num {
+  font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase;
+  letter-spacing: 0.2em; color: var(--accent); margin-bottom: 1.5rem;
+  display: block;
+}
+
+/* --- CARDS --- */
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 2rem 0; }
+.card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.75rem; transition: border-color 0.3s, transform 0.3s;
+}
+.card:hover { border-color: rgba(255,255,255,0.12); transform: translateY(-2px); }
+.card-icon {
+  width: 36px; height: 36px; border-radius: 8px; margin-bottom: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.9rem; font-weight: 700;
+}
+.card h4 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text); }
+.card p { font-size: 0.85rem; margin: 0; line-height: 1.6; }
+
+/* --- COMPARISON --- */
+.comparison {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  margin: 2rem 0;
+}
+.comp-side { padding: 2rem; }
+.comp-side.old { background: rgba(199,93,93,0.05); border-right: 1px solid var(--border); }
+.comp-side.new { background: rgba(110,191,139,0.05); }
+.comp-label {
+  font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.15em; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.comp-side.old .comp-label { color: var(--danger); }
+.comp-side.new .comp-label { color: var(--accent3); }
+.comp-side ul { list-style: none; }
+.comp-side li { font-size: 0.85rem; color: var(--text-muted); padding: 0.4rem 0; display: flex; gap: 0.5rem; align-items: flex-start; }
+.comp-side.old li::before { content: '×'; color: var(--danger); font-weight: 700; flex-shrink: 0; }
+.comp-side.new li::before { content: '→'; color: var(--accent3); font-weight: 700; flex-shrink: 0; }
+
+/* --- CODE / DIARY --- */
+.diary-block {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.5rem; margin: 2rem 0; overflow-x: auto;
+}
+.diary-block pre {
+  font-family: var(--mono); font-size: 0.78rem; line-height: 1.7;
+  color: var(--text-muted); white-space: pre-wrap;
+}
+.diary-block .key { color: var(--accent2); }
+.diary-block .val-str { color: var(--accent3); }
+.diary-block .val-num { color: var(--accent); }
+.diary-block .reasoning { color: var(--purple); font-style: italic; }
+
+/* --- FOLDER TREE --- */
+.folder-tree {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.75rem 2rem; margin: 2rem 0; font-family: var(--mono); font-size: 0.78rem;
+  line-height: 2; color: var(--text-muted);
+}
+.folder-tree .dir { color: var(--accent2); font-weight: 500; }
+.folder-tree .immutable { color: var(--accent); }
+.folder-tree .chain { color: var(--accent3); }
+.folder-tree .indent { padding-left: 1.5em; }
+.folder-tree .indent2 { padding-left: 3em; }
+
+/* --- INTERACTIVE ANIMATION: LOAN LIFECYCLE --- */
+.lifecycle-stage {
+  position: relative; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 2rem; margin: 2rem 0;
+  overflow: hidden;
+}
+.lifecycle-stage::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent3));
+}
+.stage-controls {
+  display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+}
+.stage-btn {
+  font-family: var(--mono); font-size: 0.72rem; padding: 0.5rem 1rem;
+  background: transparent; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-muted); cursor: pointer; transition: all 0.25s;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.stage-btn:hover { border-color: var(--accent); color: var(--accent); }
+.stage-btn.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.stage-canvas { min-height: 320px; position: relative; }
+
+/* SVG animation styles */
+.stage-canvas svg { width: 100%; height: auto; }
+.loan-node { transition: all 0.5s cubic-bezier(0.16,1,0.3,1); }
+.sub-agent { opacity: 0; transform: translateY(10px); transition: all 0.4s cubic-bezier(0.16,1,0.3,1); }
+.sub-agent.visible { opacity: 1; transform: translateY(0); }
+.msg-line { stroke-dasharray: 6 4; animation: dash 1.2s linear infinite; }
+@keyframes dash { to { stroke-dashoffset: -20; } }
+.pulse { animation: pulse-glow 2s ease-in-out infinite; }
+@keyframes pulse-glow { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+.diary-write { stroke-dasharray: 4 4; animation: diary-flow 0.8s linear infinite; }
+@keyframes diary-flow { to { stroke-dashoffset: -16; } }
+
+/* --- ACTOR PIPELINE ANIMATION --- */
+.pipeline-demo {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 2rem; margin: 2rem 0; position: relative; overflow: hidden;
+}
+.pipeline-demo::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent2);
+}
+.pipeline-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;
+}
+.pipeline-title { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.15em; color: var(--accent2); }
+.btn-sm {
+  font-family: var(--mono); font-size: 0.68rem; padding: 0.4rem 0.8rem;
+  background: var(--accent2); color: var(--bg); border: none; border-radius: 4px;
+  cursor: pointer; transition: opacity 0.2s; text-transform: uppercase; letter-spacing: 0.08em;
+}
+.btn-sm:hover { opacity: 0.85; }
+
+/* --- SCROLL ANIMATIONS --- */
+.reveal {
+  opacity: 0; transform: translateY(30px);
+  transition: opacity 0.7s cubic-bezier(0.16,1,0.3,1), transform 0.7s cubic-bezier(0.16,1,0.3,1);
+}
+.reveal.in { opacity: 1; transform: translateY(0); }
+.reveal-delay-1 { transition-delay: 0.1s; }
+.reveal-delay-2 { transition-delay: 0.2s; }
+.reveal-delay-3 { transition-delay: 0.3s; }
+
+/* --- BLOCKQUOTE --- */
+blockquote {
+  border-left: 2px solid var(--accent);
+  padding: 1rem 0 1rem 1.5rem;
+  margin: 2rem 0;
+}
+blockquote p {
+  font-family: var(--serif); font-size: 1.2rem; color: var(--text);
+  line-height: 1.55; margin: 0;
+}
+
+/* --- TOC --- */
+.toc {
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.75rem; margin: 2rem 0;
+}
+.toc-title {
+  font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.15em; color: var(--text-dim); margin-bottom: 1rem;
+}
+.toc ol { list-style: none; counter-reset: toc; }
+.toc li { counter-increment: toc; padding: 0.35rem 0; }
+.toc li a {
+  color: var(--text-muted); border: none; font-size: 0.9rem;
+  display: flex; gap: 0.75rem; transition: color 0.2s;
+}
+.toc li a:hover { color: var(--accent); }
+.toc li a::before {
+  content: '0' counter(toc); font-family: var(--mono); font-size: 0.72rem;
+  color: var(--text-dim); min-width: 1.5rem;
+}
+
+/* --- LANDSCAPE MATRIX --- */
+.matrix-table {
+  width: 100%; border-collapse: collapse; margin: 2rem 0;
+  font-size: 0.82rem;
+}
+.matrix-table th {
+  font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text-dim); padding: 0.75rem 0.5rem;
+  text-align: center; border-bottom: 1px solid var(--border); font-weight: 500;
+}
+.matrix-table th:first-child { text-align: left; min-width: 140px; }
+.matrix-table td {
+  padding: 0.65rem 0.5rem; text-align: center; border-bottom: 1px solid var(--border);
+  color: var(--text-muted); vertical-align: middle; font-size: 0.8rem;
+}
+.matrix-table td:first-child {
+  text-align: left; font-weight: 500; color: var(--text); font-size: 0.82rem;
+}
+.matrix-table tr:last-child td { border-bottom: none; }
+.matrix-table .row-highlight td { background: rgba(212,146,75,0.04); }
+.matrix-table .row-highlight td:first-child { color: var(--accent); font-weight: 700; }
+
+.tier-label {
+  display: inline-block; font-family: var(--mono); font-size: 0.65rem;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0.25rem 0.6rem; border-radius: 4px; margin-bottom: 0.75rem;
+}
+.tier-1 { background: rgba(199,93,93,0.1); color: var(--danger); border: 1px solid rgba(199,93,93,0.2); }
+.tier-2 { background: rgba(212,146,75,0.1); color: var(--accent); border: 1px solid rgba(212,146,75,0.2); }
+.tier-3 { background: rgba(91,160,196,0.1); color: var(--accent2); border: 1px solid rgba(91,160,196,0.2); }
+.tier-4 { background: rgba(110,191,139,0.1); color: var(--accent3); border: 1px solid rgba(110,191,139,0.2); }
+
+.landscape-tier {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.5rem; margin-bottom: 1rem; transition: border-color 0.3s;
+}
+.landscape-tier:hover { border-color: rgba(255,255,255,0.1); }
+.landscape-tier h4 { font-size: 0.92rem; margin-bottom: 0.4rem; }
+.landscape-tier .examples {
+  font-family: var(--mono); font-size: 0.75rem; color: var(--text-dim); margin-bottom: 0.5rem;
+}
+.landscape-tier p { font-size: 0.85rem; margin: 0; }
+
+.novelty-item {
+  display: grid; grid-template-columns: 44px 1fr; gap: 1rem;
+  padding: 1.25rem 0; border-bottom: 1px solid var(--border);
+}
+.novelty-item:last-child { border-bottom: none; }
+.novelty-num {
+  width: 44px; height: 44px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 0.85rem; font-weight: 700; flex-shrink: 0;
+}
+.novelty-item h4 { font-size: 0.95rem; margin-bottom: 0.35rem; color: var(--text); }
+.novelty-item p { font-size: 0.85rem; margin: 0; }
+
+/* --- FOOTER --- */
+footer {
+  padding: 4rem 0; border-top: 1px solid var(--border);
+  text-align: center;
+}
+footer p { font-size: 0.82rem; color: var(--text-dim); }
+
+/* --- RESPONSIVE --- */
+@media (max-width: 720px) {
+  html { font-size: 16px; }
+  .card-grid { grid-template-columns: 1fr; }
+  .comparison { grid-template-columns: 1fr; }
+  .comp-side.old { border-right: none; border-bottom: 1px solid var(--border); }
+  nav .nav-links { display: none; }
+  .hero-meta { flex-wrap: wrap; gap: 1rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav id="topnav">
+  <div class="nav-inner">
+    <div class="nav-logo">Loan-as-Actor</div>
+    <div class="nav-links">
+      <a href="#problem">Problem</a>
+      <a href="#landscape">ICE Moat</a>
+      <a href="#actor-model">Actor Model</a>
+      <a href="#diary">Diary</a>
+      <a href="#vault">Vault</a>
+      <a href="#roi">ROI</a>
+      <a href="#secondary">Secondary</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="hero-eyebrow reveal">Architecture White Paper · Anti-Moat Thesis</div>
+    <h1 class="reveal reveal-delay-1">What if the <em>loan</em> was the agent?</h1>
+    <p class="subtitle reveal reveal-delay-2">Every mortgage tech platform — from ICE's Encompass to the agentic upstarts trying to unbundle it — treats the loan as a row in a database moved between workstations. We make the loan a live process with its own diary, its own goals, and its own 30-year lifespan. The assembly line goes away.</p>
+    <div class="hero-meta reveal reveal-delay-3">
+      <span>April 2026</span>
+      <span>Draft v0.2</span>
+      <span>For discussion</span>
+    </div>
+  </div>
+</section>
+
+<!-- TOC -->
+<section style="padding-top: 2rem; border-top: 1px solid var(--border);">
+  <div class="container">
+    <div class="toc reveal">
+      <div class="toc-title">Contents</div>
+      <ol>
+        <li><a href="#problem">The station-based problem</a></li>
+        <li><a href="#inversion">The ontological inversion</a></li>
+        <li><a href="#landscape">The ICE moat &amp; the competitive landscape</a></li>
+        <li><a href="#actor-model">Theoretical foundations — the Actor Model</a></li>
+        <li><a href="#lifecycle">Interactive — lifecycle of a loan actor</a></li>
+        <li><a href="#diary">The cognitive diary</a></li>
+        <li><a href="#vault">Knowledge as code — the operating vault</a></li>
+        <li><a href="#roi">What it's worth — dollars and days</a></li>
+        <li><a href="#at-scale">Architecture at scale</a></li>
+        <li><a href="#secondary">Secondary market implications</a></li>
+        <li><a href="#next">Building the prototype</a></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 1: THE PROBLEM -->
+<section id="problem">
+  <div class="container">
+    <span class="section-num reveal">01 — The Problem</span>
+    <h2 class="reveal">Every agentic mortgage platform is still <em>station-based</em></h2>
+    <p class="lead reveal">The mortgage industry's "AI transformation" has swapped humans for agents at each workstation — but left the assembly line itself unchanged.</p>
+
+    <div class="reveal">
+      <p>From Tavant's MAYA to AWS Bedrock Agents to UiPath Maestro, every current approach follows the same pattern: a <strong>supervisor or orchestrator agent</strong> sits at the top, delegating tasks to specialized sub-agents (document extraction, compliance checking, underwriting analysis) that act on a passive loan record. The loan remains a row in a database — acted upon, never acting.</p>
+      <p>This means every transition between stages (processing → underwriting → closing → servicing) is a <strong>seam</strong> where context drops, state gets lost, and exceptions get stuck in queues. The agentic SaaS vendors have automated the stations, but not the handoffs. And in mortgage, the handoffs are where everything breaks.</p>
+    </div>
+
+    <!-- Animation: the station assembly line -->
+    <div class="pipeline-demo reveal" id="station-demo" style="border-color: rgba(199,93,93,0.25);">
+      <div class="pipeline-header">
+        <div class="pipeline-title" style="color:var(--danger);">The station assembly line — what exists today</div>
+        <button class="btn-sm" onclick="animateStations()" style="background:var(--danger);">Animate</button>
+      </div>
+      <svg id="station-svg" viewBox="0 0 780 300" style="width:100%">
+        <defs>
+          <marker id="st-arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <!-- Five stations across the top -->
+        <g>
+          <rect x="30" y="60" width="130" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          <text x="95" y="85" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54" text-transform="uppercase" letter-spacing="1.2">STATION 01</text>
+          <text x="95" y="105" text-anchor="middle" font-family="DM Sans" font-size="12" fill="#9A978E" font-weight="500">LOS intake</text>
+        </g>
+        <g>
+          <rect x="180" y="60" width="130" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          <text x="245" y="85" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54" text-transform="uppercase" letter-spacing="1.2">STATION 02</text>
+          <text x="245" y="105" text-anchor="middle" font-family="DM Sans" font-size="12" fill="#9A978E" font-weight="500">Processor</text>
+        </g>
+        <g>
+          <rect x="330" y="60" width="130" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          <text x="395" y="85" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54" text-transform="uppercase" letter-spacing="1.2">STATION 03</text>
+          <text x="395" y="105" text-anchor="middle" font-family="DM Sans" font-size="12" fill="#9A978E" font-weight="500">Underwriter</text>
+        </g>
+        <g>
+          <rect x="480" y="60" width="130" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          <text x="545" y="85" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54" text-transform="uppercase" letter-spacing="1.2">STATION 04</text>
+          <text x="545" y="105" text-anchor="middle" font-family="DM Sans" font-size="12" fill="#9A978E" font-weight="500">Closer</text>
+        </g>
+        <g>
+          <rect x="630" y="60" width="130" height="60" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.15)" stroke-width="0.5"/>
+          <text x="695" y="85" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54" text-transform="uppercase" letter-spacing="1.2">STATION 05</text>
+          <text x="695" y="105" text-anchor="middle" font-family="DM Sans" font-size="12" fill="#9A978E" font-weight="500">Servicer</text>
+        </g>
+
+        <!-- Queues between stations -->
+        <g id="st-q1" opacity="0.35">
+          <text x="170" y="94" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">↓ 2.1d ↓</text>
+        </g>
+        <g id="st-q2" opacity="0.35">
+          <text x="320" y="94" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">↓ 4.8d ↓</text>
+        </g>
+        <g id="st-q3" opacity="0.35">
+          <text x="470" y="94" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">↓ 3.2d ↓</text>
+        </g>
+        <g id="st-q4" opacity="0.35">
+          <text x="620" y="94" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">↓ MISMO ↓</text>
+        </g>
+
+        <!-- The loan: moves left to right -->
+        <g id="st-loan">
+          <rect x="5" y="150" width="120" height="40" rx="6" fill="rgba(212,146,75,0.12)" stroke="#D4924B" stroke-width="1.2"/>
+          <text x="65" y="167" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#D4924B" letter-spacing="1">LOAN #1247</text>
+          <text x="65" y="182" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#9A978E">full context</text>
+        </g>
+
+        <!-- Lost-context log that accumulates at bottom -->
+        <g id="st-log">
+          <text x="40" y="230" font-family="JetBrains Mono" font-size="9" fill="#5C5A54" text-transform="uppercase" letter-spacing="1.2">Context lost at each handoff:</text>
+        </g>
+        <g id="st-loss1" opacity="0">
+          <text x="40" y="250" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">✕ LO's notes on borrower's motivation</text>
+        </g>
+        <g id="st-loss2" opacity="0">
+          <text x="40" y="266" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">✕ Processor's judgment calls not captured in LOS fields</text>
+        </g>
+        <g id="st-loss3" opacity="0">
+          <text x="40" y="282" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">✕ UW's conditional reasoning compressed to a one-line stip</text>
+        </g>
+        <g id="st-loss4" opacity="0">
+          <text x="430" y="250" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">✕ Origination reasoning → MISMO tape</text>
+        </g>
+        <g id="st-loss5" opacity="0">
+          <text x="430" y="266" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">✕ Re-boarded in servicing system as new record</text>
+        </g>
+        <g id="st-loss6" opacity="0">
+          <text x="430" y="282" font-family="JetBrains Mono" font-size="9" fill="#C75D5D">✕ Audit trail now scattered across 3+ systems</text>
+        </g>
+
+        <!-- Station flash overlays (for highlight during animation) -->
+        <rect id="st-flash1" x="30" y="60" width="130" height="60" rx="8" fill="rgba(212,146,75,0.2)" opacity="0"/>
+        <rect id="st-flash2" x="180" y="60" width="130" height="60" rx="8" fill="rgba(212,146,75,0.2)" opacity="0"/>
+        <rect id="st-flash3" x="330" y="60" width="130" height="60" rx="8" fill="rgba(212,146,75,0.2)" opacity="0"/>
+        <rect id="st-flash4" x="480" y="60" width="130" height="60" rx="8" fill="rgba(212,146,75,0.2)" opacity="0"/>
+        <rect id="st-flash5" x="630" y="60" width="130" height="60" rx="8" fill="rgba(212,146,75,0.2)" opacity="0"/>
+
+        <!-- Caption -->
+        <text x="390" y="30" text-anchor="middle" font-family="DM Sans" font-size="11" fill="#9A978E" font-weight="500">The loan is a passive record. It waits in queues. At each handoff, context it carried falls away.</text>
+      </svg>
+    </div>
+
+    <div class="comparison reveal">
+      <div class="comp-side old">
+        <div class="comp-label"><span style="width:8px;height:8px;border-radius:50%;background:var(--danger);display:inline-block"></span> Station-based (current)</div>
+        <ul>
+          <li>Loan is a passive data record acted upon by external agents</li>
+          <li>Handoffs between stages lose context and create queue friction</li>
+          <li>Exception handling requires human routing to the right specialist</li>
+          <li>Audit trail is scattered across multiple systems and logs</li>
+          <li>Secondary market: loan is a static snapshot exported from LOS</li>
+        </ul>
+      </div>
+      <div class="comp-side new">
+        <div class="comp-label"><span style="width:8px;height:8px;border-radius:50%;background:var(--accent3);display:inline-block"></span> Loan-as-Actor (proposed)</div>
+        <ul>
+          <li>Loan is an autonomous entity with goals, state, and reasoning</li>
+          <li>No handoffs — the loan carries its context and recruits capability</li>
+          <li>Loan self-detects exceptions and spawns resolution sub-agents</li>
+          <li>Single cognitive diary captures every event, decision, and rationale</li>
+          <li>Secondary market: loan carries its complete provenance and history</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 2: THE INVERSION -->
+<section id="inversion">
+  <div class="container">
+    <span class="section-num reveal">02 — The Inversion</span>
+    <h2 class="reveal">The loan is already the <em>protagonist</em></h2>
+
+    <p class="lead reveal">A mortgage loan has a legal identity, a 30-year lifespan, and it gets bought and sold as an asset. It's already the protagonist of its own story. We propose making it the protagonist computationally.</p>
+
+    <div class="reveal">
+      <blockquote>
+        <p>Instead of agents executing on a loan, the loan executes agents. It doesn't get handed off — it reaches out and grabs what it needs.</p>
+      </blockquote>
+    </div>
+
+    <div class="card-grid">
+      <div class="card reveal">
+        <div class="card-icon" style="background:var(--accent-glow); color:var(--accent);">S</div>
+        <h4>Self-aware state</h4>
+        <p>The loan knows its own FICO, LTV, product type, lock expiration, and outstanding conditions. It reasons about what it needs next.</p>
+      </div>
+      <div class="card reveal reveal-delay-1">
+        <div class="card-icon" style="background:rgba(91,160,196,0.12); color:var(--accent2);">D</div>
+        <h4>Demand-driven capability</h4>
+        <p>When the loan needs a credit pull, it spawns a credit sub-agent. When it needs an appraisal, it spawns an appraisal sub-agent. The loan doesn't care if it's an internal service or an API vendor.</p>
+      </div>
+      <div class="card reveal reveal-delay-2">
+        <div class="card-icon" style="background:rgba(110,191,139,0.12); color:var(--accent3);">R</div>
+        <h4>Self-healing resilience</h4>
+        <p>If a sub-agent fails (vendor timeout, data mismatch), the loan's supervision logic kicks in — retry, escalate, try an alternative, alert a human. No orchestrator bottleneck.</p>
+      </div>
+      <div class="card reveal reveal-delay-3">
+        <div class="card-icon" style="background:rgba(155,142,196,0.12); color:var(--purple);">P</div>
+        <h4>Portable identity</h4>
+        <p>When sold to a servicer, the loan doesn't export a static snapshot. It hands over its complete diary, and the new owner spins up a fresh actor that reconstitutes with full history.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 3: COMPETITIVE LANDSCAPE & NOVELTY -->
+<section id="landscape">
+  <div class="container">
+    <span class="section-num reveal">03 — The ICE Moat &amp; The Landscape</span>
+    <h2 class="reveal">Replacing the elements. <em>Not changing the system.</em></h2>
+
+    <p class="lead reveal">The mortgage-tech conversation happens in the shadow of one company. After the <a href="https://ir.theice.com/press/news-details/2023/Intercontinental-Exchange-Completes-Acquisition-of-Black-Knight-and-Announces-Preliminary-Results-of-Elections-Made-by-Black-Knight-Stockholders-in-Connection-with-the-Acquisition/default.aspx">$11.9B Black Knight acquisition</a>, ICE Mortgage Technology owns a <a href="https://www.housingwire.com/articles/ice-solidifies-position-as-the-dominant-player-in-the-mortgage-tech-space-in-2023/">dominant share</a> of the stack — LOS, servicing, registration, eRecording, compliance, and the data pipes between them. Every challenger in this landscape is either trying to replace one ICE station with a better one, or layer AI onto the stations that already exist. Loan-as-Actor targets something different: the ground the stations stand on.</p>
+
+    <div class="landscape-tier reveal" style="border-color: rgba(212,146,75,0.35); background: linear-gradient(180deg, rgba(212,146,75,0.06), rgba(212,146,75,0.02));">
+      <span class="tier-label" style="background:rgba(212,146,75,0.14); color:var(--accent); border:1px solid rgba(212,146,75,0.3);">The incumbent</span>
+      <h4 style="color:var(--accent);">ICE Mortgage Technology — the vertically integrated station network</h4>
+      <div class="examples">Encompass (LOS) · MSP (servicing, ex-Black Knight) · MERS · Simplifile · AIQ · Surefire · Velocify · ICE Mortgage Data</div>
+      <p>After the <a href="https://www.housingwire.com/articles/ice-completes-11-7b-acquisition-of-black-knight/">Black Knight acquisition</a>, ICE owns the LOS, the servicing system of record, the national registration monopoly (MERS), the dominant eRecording network (Simplifile), the compliance-QC layer (AIQ), and the data pipes between them. A loan born in Encompass, registered in MERS, eRecorded via Simplifile, boarded into MSP, and tracked in ICE Mortgage Data is a loan that pays ICE at every station along the way. The moat is not the workflow engine — it's the perimeter. Every vendor who touches the loan has to integrate into it.</p>
+      <p>The architecture is still station-based. Encompass's Business Rules live in a GUI-configured engine, version-controlled by screenshot at best. The ongoing <a href="https://www.housingwire.com/articles/ice-delays-encompass-sdk-transition-until-end-of-2026/">SDK → API migration</a>, now pushed to end-of-2026, is exposing how little of a lender's workflow is actually portable — vendors and lenders have publicly flagged that "<a href="https://www.housingwire.com/articles/why-are-some-vendors-dragging-their-feet-on-the-ice-sdk-transition/">by removing the SDK and providing no clear path to converting all customizations to API, [ICE] puts a tremendous amount of work and stress on developers and admins</a>." The <a href="https://www.ftc.gov/legal-library/browse/cases-proceedings/221-0142-intercontinental-exchange-incblack-knight-inc-matter">FTC itself flagged the combined entity</a> as likely to stifle innovation and reduce lender choice. <strong>Lenders don't need a better station. They need a way out of the perimeter.</strong></p>
+    </div>
+
+    <div class="reveal" style="margin-top:2rem">
+      <p>A new generation of challengers is building impressive point solutions — modern cloud-native platforms replacing decades-old infrastructure at one station each. But every one of them is rebuilding the same fundamental architecture with better parts.</p>
+      <p><strong>Vesta</strong> is building what may be the best LOS in a generation — backed by Andreessen Horowitz, Bain Capital Ventures, and Index Ventures, with <a href="https://www.businesswire.com/news/home/20250905665916/en/Pennymac-Selects-Vesta-to-Supercharge-Its-Mortgage-Platform-Setting-a-New-Industry-Standard-in-Origination-Technology">Pennymac making a long-term minority equity investment in September 2025</a> as the first large lender to go live. Their platform offers customizable workflows, open APIs, and what they describe as an "agent-based architecture" that orchestrates every step of origination. It's a genuine threat to Encompass on the origination side.</p>
+      <p><strong>Valon</strong> is doing the same for servicing — Rithm Capital has <a href="https://www.housingwire.com/articles/rithm-valon-mortgage-servicing/">deepened its partnership</a> to <a href="https://www.businesswire.com/news/home/20260128178741/en/Rithm-Capital-Deepens-Partnership-With-Valon-AI-Native-Platform-to-Advance-Newrez-Servicing-Capabilities">deploy ValonOS across Newrez, a portfolio of over 4 million homeowners, with transition beginning in 2027</a>. One system of record, built-in compliance, modular architecture. It's what a modern mortgage servicing platform should look like.</p>
+      <p><strong>MOZAIQ</strong> goes further with agentic AI — deploying "swarms of specialized agents" for income analysis, asset verification, appraisal review, and compliance validation across the fulfillment lifecycle. <a href="https://mozaiq.ai/the-loan-store-case-study-mortgage-ai-automation/">The Loan Store, a top-ten wholesale lender, scaled from $10M to $2B in monthly originations in under two years using their Loan Assist platform — while reducing cost-per-loan by 40% and improving loan turn times by more than 50%.</a> That's the serious proof point for what agentic optimization of the existing stations can deliver.</p>
+      <p>These are real companies delivering real results. But zoom out and the pattern is the same everywhere:</p>
+    </div>
+
+    <div class="reveal" style="margin-top:1.5rem">
+      <blockquote>
+        <p>Vesta is a better workstation. Valon is a better workstation. MOZAIQ puts smarter workers at each station. None of them owns MERS, Simplifile, or MSP — so any loan originated outside Encompass still ends up paying ICE at registration, recording, and servicing boarding. Replacing a station replaces a station. The perimeter survives.</p>
+      </blockquote>
+    </div>
+
+    <!-- Animation: vendor perimeter handoffs -->
+    <div class="pipeline-demo reveal" id="vendor-demo" style="border-color: rgba(155,142,196,0.3);">
+      <div class="pipeline-header">
+        <div class="pipeline-title" style="color:var(--purple);">Cobbling the challenger stack — Vesta → Valon → MOZAIQ</div>
+        <button class="btn-sm" onclick="animateVendors()" style="background:var(--purple);">Animate</button>
+      </div>
+      <svg id="vendor-svg" viewBox="0 0 820 340" style="width:100%">
+        <!-- Three vendor perimeters as rounded walls -->
+        <g>
+          <rect x="30" y="70" width="220" height="180" rx="14" fill="rgba(91,160,196,0.04)" stroke="rgba(91,160,196,0.4)" stroke-width="1.2" stroke-dasharray="6 3"/>
+          <text x="140" y="94" text-anchor="middle" font-family="DM Serif Display" font-size="16" fill="#5BA0C4" font-style="italic">Vesta</text>
+          <text x="140" y="110" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54" letter-spacing="1" text-transform="uppercase">Next-gen LOS perimeter</text>
+          <rect x="50" y="130" width="80" height="34" rx="5" fill="rgba(91,160,196,0.08)" stroke="rgba(91,160,196,0.25)" stroke-width="0.5"/>
+          <text x="90" y="151" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5BA0C4">LO intake</text>
+          <rect x="150" y="130" width="80" height="34" rx="5" fill="rgba(91,160,196,0.08)" stroke="rgba(91,160,196,0.25)" stroke-width="0.5"/>
+          <text x="190" y="151" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5BA0C4">processor</text>
+          <rect x="50" y="180" width="180" height="34" rx="5" fill="rgba(91,160,196,0.08)" stroke="rgba(91,160,196,0.25)" stroke-width="0.5"/>
+          <text x="140" y="201" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5BA0C4">custom workflows · a16z-backed</text>
+        </g>
+
+        <g>
+          <rect x="300" y="70" width="220" height="180" rx="14" fill="rgba(110,191,139,0.04)" stroke="rgba(110,191,139,0.4)" stroke-width="1.2" stroke-dasharray="6 3"/>
+          <text x="410" y="94" text-anchor="middle" font-family="DM Serif Display" font-size="16" fill="#6EBF8B" font-style="italic">Valon</text>
+          <text x="410" y="110" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54" letter-spacing="1" text-transform="uppercase">Servicing perimeter</text>
+          <rect x="320" y="130" width="180" height="34" rx="5" fill="rgba(110,191,139,0.08)" stroke="rgba(110,191,139,0.25)" stroke-width="0.5"/>
+          <text x="410" y="151" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6EBF8B">ValonOS · AI-native MSP</text>
+          <rect x="320" y="180" width="85" height="34" rx="5" fill="rgba(110,191,139,0.08)" stroke="rgba(110,191,139,0.25)" stroke-width="0.5"/>
+          <text x="362" y="201" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6EBF8B">boarding</text>
+          <rect x="415" y="180" width="85" height="34" rx="5" fill="rgba(110,191,139,0.08)" stroke="rgba(110,191,139,0.25)" stroke-width="0.5"/>
+          <text x="458" y="201" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6EBF8B">payment</text>
+        </g>
+
+        <g>
+          <rect x="570" y="70" width="220" height="180" rx="14" fill="rgba(155,142,196,0.04)" stroke="rgba(155,142,196,0.4)" stroke-width="1.2" stroke-dasharray="6 3"/>
+          <text x="680" y="94" text-anchor="middle" font-family="DM Serif Display" font-size="16" fill="#9B8EC4" font-style="italic">MOZAIQ</text>
+          <text x="680" y="110" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54" letter-spacing="1" text-transform="uppercase">Agent-swarm perimeter</text>
+          <rect x="590" y="130" width="80" height="34" rx="5" fill="rgba(155,142,196,0.08)" stroke="rgba(155,142,196,0.25)" stroke-width="0.5"/>
+          <text x="630" y="151" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#9B8EC4">income</text>
+          <rect x="690" y="130" width="80" height="34" rx="5" fill="rgba(155,142,196,0.08)" stroke="rgba(155,142,196,0.25)" stroke-width="0.5"/>
+          <text x="730" y="151" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#9B8EC4">appraisal</text>
+          <rect x="590" y="180" width="180" height="34" rx="5" fill="rgba(155,142,196,0.08)" stroke="rgba(155,142,196,0.25)" stroke-width="0.5"/>
+          <text x="680" y="201" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#9B8EC4">sits on Encompass · 40% cost win</text>
+        </g>
+
+        <!-- Perimeter boundary tax markers -->
+        <g id="vn-tax1" opacity="0">
+          <text x="275" y="140" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C75D5D" font-weight="700">MISMO</text>
+          <text x="275" y="154" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#C75D5D">re-board</text>
+          <line x1="260" y1="165" x2="290" y2="165" stroke="#C75D5D" stroke-width="1" marker-end="url(#st-arw)"/>
+          <text x="275" y="180" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54">+MERS fee</text>
+          <text x="275" y="194" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54">+Simplifile fee</text>
+        </g>
+        <g id="vn-tax2" opacity="0">
+          <text x="545" y="140" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#C75D5D" font-weight="700">Re-keyed</text>
+          <text x="545" y="154" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#C75D5D">in Encompass</text>
+          <line x1="530" y1="165" x2="560" y2="165" stroke="#C75D5D" stroke-width="1" marker-end="url(#st-arw)"/>
+          <text x="545" y="180" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54">MOZAIQ sits</text>
+          <text x="545" y="194" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54">on ICE LOS</text>
+        </g>
+
+        <!-- The loan: travels across all three perimeters -->
+        <g id="vn-loan">
+          <rect x="0" y="285" width="110" height="32" rx="5" fill="rgba(212,146,75,0.12)" stroke="#D4924B" stroke-width="1"/>
+          <text x="55" y="301" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#D4924B">LOAN #1247</text>
+          <text x="55" y="312" text-anchor="middle" font-family="JetBrains Mono" font-size="7" fill="#9A978E">with context</text>
+        </g>
+
+        <!-- Reason-lost indicators that grow with each crossing -->
+        <g id="vn-lost1" opacity="0">
+          <text x="275" y="300" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#C75D5D">LO narrative dropped</text>
+        </g>
+        <g id="vn-lost2" opacity="0">
+          <text x="545" y="300" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#C75D5D">UW reasoning compressed to stip text</text>
+        </g>
+
+        <!-- Banner at the bottom -->
+        <text x="410" y="45" text-anchor="middle" font-family="DM Sans" font-size="11" fill="#9A978E" font-weight="500">Each perimeter requires re-boarding. Each boundary is an ICE fee station. The challenger stack doesn't escape the network — it pays into it.</text>
+      </svg>
+    </div>
+
+    <h3 class="reveal">The replacement pattern</h3>
+
+    <div class="landscape-tier reveal">
+      <span class="tier-label tier-1">Replace the LOS</span>
+      <h4>Better system of record, same architecture</h4>
+      <div class="examples">Vesta (origination) challenging ICE/Encompass · Finastra Mortgagebot</div>
+      <p>Modern cloud-native platforms with open APIs, customizable workflows, and agent-based orchestration. A real threat to Encompass on origination. But the loan still lives in the platform's system of record, agents still operate within the platform's workflow engine, and the platform — not the loan — decides what happens next. And a loan that leaves Encompass still gets registered in MERS, eRecorded via Simplifile, and boarded into MSP. Replacing the LOS escapes one station of the ICE gravity well; the rest still pull.</p>
+    </div>
+
+    <div class="landscape-tier reveal">
+      <span class="tier-label tier-2">Replace the MSP</span>
+      <h4>Better servicing platform, same architecture</h4>
+      <div class="examples">Valon/ValonOS replacing Black Knight MSP, FICS</div>
+      <p>AI-native servicing with unified data, built-in compliance, and automated workflows. Genuinely transformative at the servicing station. But origination-to-servicing is still a transfer — a data handoff between two separate systems with two separate loan identities. The seam remains.</p>
+    </div>
+
+    <div class="landscape-tier reveal">
+      <span class="tier-label tier-3">Smarter agents at each station</span>
+      <h4>AI workers, same assembly line</h4>
+      <div class="examples">MOZAIQ Loan Assist, Sourcepoint MLM, Tavant MAYA, Infosys agentic mortgage</div>
+      <p>Specialized AI agents for doc extraction, income analysis, compliance checking, underwriting — each trained for a specific function. The agents are brilliant at their station. But the orchestrator still moves the loan between them, the audit trail is still scattered across per-agent logs, and exception handling still means "route to the right queue."</p>
+    </div>
+
+    <div class="landscape-tier reveal">
+      <span class="tier-label tier-4">Cloud-native multi-agent infrastructure</span>
+      <h4>Better orchestration, same ontology</h4>
+      <div class="examples">AWS Bedrock Agents (mortgage blueprint), UiPath Maestro, Salesforce Agentforce</div>
+      <p>Infrastructure-layer plays where a supervisor agent delegates to extraction, validation, and compliance sub-agents. Powerful, horizontally scalable — but still top-down. The supervisor owns the logic. The loan is a data payload. When the supervisor is the bottleneck, every loan in the pipeline feels it.</p>
+    </div>
+
+    <div class="reveal" style="margin-top:2rem">
+      <p>The common thread: in every tier, the loan is a <strong>passive record</strong> inside someone else's system. Agents are organized by <strong>function</strong> (underwriting agent, doc agent, compliance agent). An <strong>orchestrator</strong> — whether it's the LOS workflow engine, MOZAIQ's swarm coordinator, or AWS Bedrock's supervisor — decides what happens to the loan and when. Loan-as-Actor inverts all three assumptions.</p>
+    </div>
+
+    <h3 class="reveal" style="margin-top:2.5rem">The novelty matrix</h3>
+    <p class="reveal">What changes when the loan itself becomes the computational protagonist:</p>
+
+    <div class="reveal" style="overflow-x:auto">
+      <table class="matrix-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>Legacy LOS</th>
+            <th>Next-gen LOS/MSP</th>
+            <th>Agentic overlay</th>
+            <th>Loan&#8209;as&#8209;Actor</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Loan has autonomous goals</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--accent3);font-weight:700">Yes</td>
+          </tr>
+          <tr>
+            <td>Context survives handoffs</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--accent)">Within platform</td>
+            <td style="color:var(--accent)">Partial</td>
+            <td style="color:var(--accent3);font-weight:700">No handoffs</td>
+          </tr>
+          <tr>
+            <td>Origination → servicing continuity</td>
+            <td style="color:var(--text-dim)">Data export</td>
+            <td style="color:var(--accent)">Improved transfer</td>
+            <td style="color:var(--text-dim)">N/A</td>
+            <td style="color:var(--accent3);font-weight:700">Same actor</td>
+          </tr>
+          <tr>
+            <td>Self-initiated exception handling</td>
+            <td style="color:var(--text-dim)">Manual routing</td>
+            <td style="color:var(--accent)">Rule-based routing</td>
+            <td style="color:var(--accent)">Orchestrator-routed</td>
+            <td style="color:var(--accent3);font-weight:700">Loan-initiated</td>
+          </tr>
+          <tr>
+            <td>Unified cognitive audit trail</td>
+            <td style="color:var(--text-dim)">Scattered logs</td>
+            <td style="color:var(--accent)">Platform logs</td>
+            <td style="color:var(--accent)">Per-agent logs</td>
+            <td style="color:var(--accent3);font-weight:700">Single diary</td>
+          </tr>
+          <tr>
+            <td>Portable loan identity</td>
+            <td style="color:var(--text-dim)">Static export</td>
+            <td style="color:var(--text-dim)">Static export</td>
+            <td style="color:var(--text-dim)">Static export</td>
+            <td style="color:var(--accent3);font-weight:700">Diary transfer</td>
+          </tr>
+          <tr>
+            <td>Hot regulatory updates</td>
+            <td style="color:var(--text-dim)">System deploy</td>
+            <td style="color:var(--accent)">Config update</td>
+            <td style="color:var(--accent)">Agent retrain</td>
+            <td style="color:var(--accent3);font-weight:700">Actor code swap</td>
+          </tr>
+          <tr>
+            <td>Secondary market: push model</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--text-dim)">—</td>
+            <td style="color:var(--accent3);font-weight:700">Loan advertises</td>
+          </tr>
+          <tr>
+            <td>Crash recovery model</td>
+            <td style="color:var(--text-dim)">Manual requeue</td>
+            <td style="color:var(--accent)">Platform retry</td>
+            <td style="color:var(--accent)">Orchestrator retry</td>
+            <td style="color:var(--accent3);font-weight:700">Supervisor restart</td>
+          </tr>
+          <tr>
+            <td>Data security model</td>
+            <td style="color:var(--text-dim)">Full record at every station</td>
+            <td style="color:var(--text-dim)">Full record at every station</td>
+            <td style="color:var(--accent)">Per-agent access controls</td>
+            <td style="color:var(--accent3);font-weight:700">Least-privilege by design</td>
+          </tr>
+          <tr>
+            <td>Breach blast radius</td>
+            <td style="color:var(--text-dim)">All loans exposed</td>
+            <td style="color:var(--text-dim)">All loans exposed</td>
+            <td style="color:var(--accent)">Agent-scoped</td>
+            <td style="color:var(--accent3);font-weight:700">Single loan isolated</td>
+          </tr>
+          <tr class="row-highlight">
+            <td>Architecture pattern</td>
+            <td style="color:var(--text-dim)">Assembly line</td>
+            <td style="color:var(--text-dim)">Modern assembly line</td>
+            <td style="color:var(--text-dim)">Orchestrated swarm</td>
+            <td style="color:var(--accent);font-weight:700">Entity-as-agent</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="reveal" style="margin-top:2.5rem">Ten structural advantages</h3>
+
+    <div class="reveal">
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:var(--accent-glow);color:var(--accent)">01</div>
+        <div>
+          <h4>Ontological inversion</h4>
+          <p>Vesta organizes agents around its workflow engine. MOZAIQ organizes agents by function (income, assets, compliance). Loan-as-Actor organizes computation around the <strong>entity that matters</strong> — the loan itself. This isn't a better LOS. It's a different category: the loan has goals, makes decisions, and recruits capability on demand.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(91,160,196,0.1);color:var(--accent2)">02</div>
+        <div>
+          <h4>Zero-handoff lifecycle</h4>
+          <p>Despite every advance in the space — Vesta's modern LOS, Valon's modern MSP — the origination-to-servicing boundary is still a <strong>data transfer between two systems</strong>. The loan gets a new identity in each. With Loan-as-Actor, there is no transfer. The same actor continues through origination, servicing, modification, and disposition. Context is never lost because it was never handed off.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(110,191,139,0.1);color:var(--accent3)">03</div>
+        <div>
+          <h4>Self-healing without bottleneck</h4>
+          <p>Orchestrator-based systems create a single point of failure. When exceptions pile up at MOZAIQ's swarm coordinator or Vesta's workflow engine, the orchestrator becomes the constraint. Loan-actors use OTP supervision trees — each loan handles its own exceptions independently, with automatic restart on failure. The system degrades gracefully under load.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(155,142,196,0.1);color:var(--purple)">04</div>
+        <div>
+          <h4>Unified cognitive audit trail</h4>
+          <p>Even the best current platforms scatter decision data across per-agent or per-module logs. A regulator asking "why was this loan approved?" must reconstruct the story. The loan's diary captures every event, every decision, and every piece of reasoning in a single append-only log — with compacted views for regulators, underwriters, and secondary market analysts.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(212,146,75,0.1);color:var(--accent)">05</div>
+        <div>
+          <h4>Hot-swappable regulatory compliance</h4>
+          <p>When Fannie Mae updates the Selling Guide, current platforms require configuration updates (Vesta), module redeployment (Valon), or agent retraining (MOZAIQ). The Actor Model supports hot code loading — new compliance rules deploy while loan-actors are running. Existing loans pick up new rules on their next message cycle without restart or downtime.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(91,160,196,0.1);color:var(--accent2)">06</div>
+        <div>
+          <h4>Portable identity for secondary market</h4>
+          <p>Today, selling a loan means exporting a static MISMO data tape — a snapshot that loses the full context of how the loan reached its current state. Every platform — legacy or modern — produces the same static export. A loan-actor transfers its diary: complete provenance, decision trail, and compliance history. The buyer reconstitutes the actor with full fidelity.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(110,191,139,0.1);color:var(--accent3)">07</div>
+        <div>
+          <h4>Push-model pooling and trading</h4>
+          <p>No current platform — not Vesta, not Valon, not MOZAIQ — enables loans to actively signal their eligibility for investor pools. Loan-as-Actor transforms the secondary market from a pull model (capital markets desk queries a database) to a push model (loans evaluate investor criteria and advertise their eligibility). This is a net-new capability that doesn't exist anywhere.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(199,93,93,0.1);color:var(--danger)">08</div>
+        <div>
+          <h4>Data security by architecture, not by policy</h4>
+          <p>Station-based systems replicate the complete loan record across every platform that touches it — LOS, doc management, underwriting engine, servicing system, secondary marketing tools. Each copy is an attack surface. The actor model inverts this: <strong>data stays with the loan</strong>. Sub-agents receive only the fields they need (a credit-pull agent gets the SSN, not the property address). Actor isolation means no shared memory and no shared database — compromising one loan doesn't give lateral access to others. The append-only diary with chain anchors is tamper-evident by design. And right-to-deletion (GLBA/CCPA) becomes straightforward: destroy one actor and its diary, not hunt through a dozen systems for every copy of a borrower's data.</p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(91,160,196,0.1);color:var(--accent2)">09</div>
+        <div>
+          <h4>Vendor-portable operating knowledge</h4>
+          <p>ICE's 70% market share depends on a lender's operating logic being stuck inside Encompass — business rules in a GUI-configured engine, custom fields in a proprietary schema, workflows that take a multi-year IT project to migrate out. Vesta's story depends on the same stickiness, just with fresher infrastructure. Loan-as-Actor moves the operating manual into a git repo of Markdown — the knowledge vault — that any compliant runtime can read. Switching from one actor runtime to another is a configuration change, not a re-implementation. <strong>The perimeter only works if the lender's operations live inside it.</strong></p>
+        </div>
+      </div>
+      <div class="novelty-item">
+        <div class="novelty-num" style="background:rgba(110,191,139,0.1);color:var(--accent3)">10</div>
+        <div>
+          <h4>Regulator-readable by default</h4>
+          <p>Today, a CFPB or state exam is a forensic reconstruction project across LOS, servicing, imaging, and compliance systems — each with its own field identifiers and log formats. With loan-as-actor: the vault is the documented shop procedure, the diary is the narrated decision log, and the chain anchors prove neither was altered after the fact. An exam becomes a same-day replay: <em>"show me this loan's diary and the matching vault procedure."</em> The structural question "did this loan follow your written process?" becomes answerable by running a test, not by assembling a forensic file.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 4: ACTOR MODEL -->
+<section id="actor-model">
+  <div class="container">
+    <span class="section-num reveal">04 — Theoretical Foundations</span>
+    <h2 class="reveal">The Actor Model meets <em>mortgage</em></h2>
+
+    <p class="lead reveal">Three well-established paradigms converge: Carl Hewitt's Actor Model (1973), Event Sourcing, and Intelligent Digital Twins from Industry 4.0.</p>
+
+    <div class="reveal">
+      <h3>The Erlang origin story</h3>
+      <p>Erlang was created at Ericsson in the late 1980s to run telephone switches — systems managing <strong>millions of concurrent calls</strong>, any of which could fail at any moment, without ever taking the system down. The insight: model each call as a tiny, isolated process with its own state. Processes communicate only by sending messages. If one crashes, restart it. No other process is affected.</p>
+      <p>This maps to mortgage with uncanny precision. A telephone switch manages 100,000 concurrent calls. A large lender manages 100,000 concurrent loans. Both are <strong>massive concurrency of independent, long-running, stateful entities</strong> where partial failures are the norm, not the exception.</p>
+    </div>
+
+    <!-- ANIMATED: Actor Properties -->
+    <div class="pipeline-demo reveal" id="actor-props-demo">
+      <div class="pipeline-header">
+        <div class="pipeline-title">Actor model — core properties</div>
+        <button class="btn-sm" onclick="animateActorProps()">Animate</button>
+      </div>
+      <svg id="actor-svg" viewBox="0 0 780 340" style="width:100%">
+        <defs>
+          <marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <!-- Loan Actor (center) -->
+        <rect id="ap-loan" x="280" y="95" width="220" height="150" rx="14" fill="rgba(212,146,75,0.1)" stroke="#D4924B" stroke-width="1.5"/>
+        <text x="390" y="125" text-anchor="middle" font-family="DM Sans" font-size="11" fill="#D4924B" font-weight="700" text-transform="uppercase" letter-spacing="1.5">LOAN ACTOR #1247</text>
+        <text x="390" y="155" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#9A978E">state: underwriting</text>
+        <text x="390" y="172" text-anchor="middle" font-family="JetBrains Mono" font-size="10" fill="#9A978E">fico: 742 | ltv: 78%</text>
+        <rect x="310" y="195" width="160" height="28" rx="4" fill="rgba(91,160,196,0.1)" stroke="rgba(91,160,196,0.3)" stroke-width="0.5"/>
+        <text x="390" y="213" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5BA0C4">mailbox: 3 messages</text>
+
+        <!-- Incoming Messages (left) -->
+        <g id="ap-msg1" opacity="0">
+          <rect x="30" y="100" width="180" height="36" rx="6" fill="rgba(110,191,139,0.08)" stroke="rgba(110,191,139,0.3)" stroke-width="0.5"/>
+          <text x="120" y="122" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6EBF8B">msg: appraisal_received</text>
+        </g>
+        <g id="ap-msg2" opacity="0">
+          <rect x="30" y="148" width="180" height="36" rx="6" fill="rgba(110,191,139,0.08)" stroke="rgba(110,191,139,0.3)" stroke-width="0.5"/>
+          <text x="120" y="170" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6EBF8B">msg: lock_expiry_alert</text>
+        </g>
+        <g id="ap-msg3" opacity="0">
+          <rect x="30" y="196" width="180" height="36" rx="6" fill="rgba(110,191,139,0.08)" stroke="rgba(110,191,139,0.3)" stroke-width="0.5"/>
+          <text x="120" y="218" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#6EBF8B">msg: condition_cleared</text>
+        </g>
+
+        <!-- Message arrows -->
+        <line id="ap-arr1" x1="210" y1="118" x2="278" y2="140" stroke="#6EBF8B" stroke-width="1" marker-end="url(#arw)" opacity="0"/>
+        <line id="ap-arr2" x1="210" y1="166" x2="278" y2="166" stroke="#6EBF8B" stroke-width="1" marker-end="url(#arw)" opacity="0"/>
+        <line id="ap-arr3" x1="210" y1="214" x2="278" y2="195" stroke="#6EBF8B" stroke-width="1" marker-end="url(#arw)" opacity="0"/>
+
+        <!-- Spawned Sub-agents (bottom) -->
+        <g id="ap-sub1" opacity="0">
+          <rect x="160" y="290" width="120" height="36" rx="6" fill="rgba(91,160,196,0.08)" stroke="rgba(91,160,196,0.4)" stroke-width="0.5"/>
+          <text x="220" y="312" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5BA0C4">title_check_agent</text>
+        </g>
+        <g id="ap-sub2" opacity="0">
+          <rect x="330" y="290" width="120" height="36" rx="6" fill="rgba(91,160,196,0.08)" stroke="rgba(91,160,196,0.4)" stroke-width="0.5"/>
+          <text x="390" y="312" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5BA0C4">reconsider_val_agent</text>
+        </g>
+        <g id="ap-sub3" opacity="0">
+          <rect x="500" y="290" width="120" height="36" rx="6" fill="rgba(91,160,196,0.08)" stroke="rgba(91,160,196,0.4)" stroke-width="0.5"/>
+          <text x="560" y="312" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5BA0C4">notify_lo_agent</text>
+        </g>
+
+        <!-- Spawn arrows -->
+        <line id="ap-spawn1" x1="340" y1="245" x2="220" y2="288" stroke="#5BA0C4" stroke-width="0.8" marker-end="url(#arw)" opacity="0" stroke-dasharray="4 3"/>
+        <line id="ap-spawn2" x1="390" y1="245" x2="390" y2="288" stroke="#5BA0C4" stroke-width="0.8" marker-end="url(#arw)" opacity="0" stroke-dasharray="4 3"/>
+        <line id="ap-spawn3" x1="440" y1="245" x2="560" y2="288" stroke="#5BA0C4" stroke-width="0.8" marker-end="url(#arw)" opacity="0" stroke-dasharray="4 3"/>
+
+        <!-- Diary (right) -->
+        <g id="ap-diary" opacity="0">
+          <rect x="560" y="95" width="190" height="150" rx="10" fill="rgba(212,146,75,0.05)" stroke="rgba(212,146,75,0.3)" stroke-width="0.5" stroke-dasharray="5 3"/>
+          <text x="655" y="118" text-anchor="middle" font-family="DM Sans" font-size="10" fill="#D4924B" font-weight="700">DIARY</text>
+          <text x="655" y="140" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54">diary.jsonl</text>
+          <text x="655" y="158" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54">summary.md</text>
+          <text x="655" y="176" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54">decisions.md</text>
+          <text x="655" y="194" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54">conditions.md</text>
+          <text x="655" y="212" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#5C5A54">chain-anchors/</text>
+          <line x1="500" y1="170" x2="558" y2="170" stroke="#D4924B" stroke-width="0.8" marker-end="url(#arw)" stroke-dasharray="4 3"/>
+          <text x="530" y="162" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#5C5A54">writes</text>
+        </g>
+
+        <!-- Supervisor (top) -->
+        <g id="ap-super" opacity="0">
+          <rect x="310" y="18" width="160" height="36" rx="6" fill="rgba(155,142,196,0.08)" stroke="rgba(155,142,196,0.4)" stroke-width="0.5"/>
+          <text x="390" y="40" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#9B8EC4">portfolio_supervisor</text>
+          <line x1="390" y1="54" x2="390" y2="93" stroke="#9B8EC4" stroke-width="0.5" marker-end="url(#arw)" stroke-dasharray="4 3"/>
+          <text x="410" y="73" font-family="JetBrains Mono" font-size="8" fill="#5C5A54">supervises</text>
+        </g>
+
+        <!-- Labels -->
+        <g id="ap-labels" opacity="0">
+          <text x="120" y="80" text-anchor="middle" font-family="DM Sans" font-size="10" fill="#5C5A54" font-weight="500">Incoming messages</text>
+          <text x="390" y="280" text-anchor="middle" font-family="DM Sans" font-size="10" fill="#5C5A54" font-weight="500">Spawned sub-agents</text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="reveal">
+      <h3>OTP supervision trees</h3>
+      <p>OTP's killer feature is <strong>supervision</strong>. Supervisors are processes whose only job is monitoring other processes and restarting them on failure. They form a tree: at the top, an application supervisor. Below it, portfolio supervisors (maybe one per product type). Below those, individual loan actors.</p>
+      <p>When a loan actor crashes — a sub-agent returns corrupted data, a message handler throws an exception — the supervisor <strong>automatically restarts it</strong>. Because the loan's state is persisted in the diary (the append-only event log), the restarted actor replays its diary and picks up exactly where it left off. This is the "let it crash" philosophy: write clean happy-path code, and let the infrastructure handle recovery.</p>
+    </div>
+
+    <div class="reveal" style="margin-top:3rem">
+      <h3>The three-loop harness — what makes it an <em style="color:var(--accent);font-style:normal">agent</em>, not a record</h3>
+      <p>A naive actor implementation is purely reactive: a message arrives, the actor processes it, returns to waiting. That gives you a smart database. For the loan to be genuinely agentic, it runs <strong>three interleaved execution loops simultaneously</strong> — each serving a distinct purpose.</p>
+    </div>
+
+    <div class="card-grid">
+      <div class="card reveal">
+        <div class="card-icon" style="background:rgba(91,160,196,0.12); color:var(--accent2);">R</div>
+        <h4>Reactive processing</h4>
+        <p>Standard GenServer message handling. Sub-agent results, external webhooks, timer expirations arrive in the mailbox and get processed sequentially. This is the baseline every actor system has.</p>
+      </div>
+      <div class="card reveal reveal-delay-1">
+        <div class="card-icon" style="background:var(--accent-glow); color:var(--accent);">♡</div>
+        <h4>Periodic reflection (heartbeat)</h4>
+        <p>Every 30 seconds, the loan wakes itself up and evaluates its situation across multiple dimensions — stuck sub-agents, upcoming deadlines, aging conditions, missing capabilities, stale state. Most reflections conclude "no concerns." That's the point — the heartbeat is always running.</p>
+      </div>
+      <div class="card reveal reveal-delay-2">
+        <div class="card-icon" style="background:rgba(110,191,139,0.12); color:var(--accent3);">→</div>
+        <h4>State-driven planning</h4>
+        <p>On every lifecycle transition, the loan consults its own knowledge of what the new state requires and spawns what's missing. No orchestrator tells it what to do next. The loan plans its own work based on where it is.</p>
+      </div>
+    </div>
+
+    <div class="reveal" style="margin-top:2rem">
+      <p>These three loops together are what distinguish an agent from a reactive record. The heartbeat is what lets the loan notice things that <em>didn't happen</em> — the appraisal that hasn't come back in 5 days, the lock that's approaching expiration, the condition that's been outstanding without action. The planning loop is what lets the loan drive its own lifecycle without external prompting. Both must be foundational, not bolted on — a loan missing either loop silently degrades to a reactive state machine.</p>
+    </div>
+
+    <div class="reveal" style="margin-top:2.5rem">
+      <h3>Deterministic-first, LLM-escalated</h3>
+      <p>The loan uses plain rules where the answer is unambiguous and LLM reasoning where judgment is required. This boundary is deliberate — LLM cost, latency, and nondeterminism all compound if invoked loosely.</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin:1.5rem 0" class="reveal">
+      <div style="background:rgba(110,191,139,0.05);border:1px solid rgba(110,191,139,0.2);border-radius:10px;padding:1.25rem">
+        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--accent3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.6rem">Always deterministic</div>
+        <p style="font-size:0.85rem;margin:0;color:var(--text-muted)">State transitions, LTV/DTI math, condition matching, timer arithmetic, chain anchor hashing, heartbeat dimension checks. Rules with unambiguous answers.</p>
+      </div>
+      <div style="background:rgba(212,146,75,0.05);border:1px solid rgba(212,146,75,0.2);border-radius:10px;padding:1.25rem">
+        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.6rem">Escalated to LLM</div>
+        <p style="font-size:0.85rem;margin:0;color:var(--text-muted)">When deterministic checks surface a concern that requires judgment — how to respond to a low appraisal, whether to investigate or deny on income discrepancy, when to extend a rate lock.</p>
+      </div>
+      <div style="background:rgba(155,142,196,0.05);border:1px solid rgba(155,142,196,0.2);border-radius:10px;padding:1.25rem">
+        <div style="font-family:var(--mono);font-size:0.68rem;color:var(--purple);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.6rem">Always LLM</div>
+        <p style="font-size:0.85rem;margin:0;color:var(--text-muted)">Multi-option decisions with context-dependent correct answers, diary compaction into working memory, natural language generation for borrower-facing notifications.</p>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <p>Every LLM call writes both its full trace (prompt, response, tokens, latency) to a separate trace log <em>and</em> its structured decision to the diary. The trace log captures <em>how</em> the LLM got there; the diary captures <em>what</em> the loan decided. Together they provide complete reproducibility for any decision.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 4: INTERACTIVE LIFECYCLE -->
+<section id="lifecycle">
+  <div class="container">
+    <span class="section-num reveal">05 — Interactive Demo</span>
+    <h2 class="reveal">A day in the life of <em>Loan #1247</em></h2>
+    <p class="lead reveal">Click through the stages to see how a Loan Actor processes a low appraisal — one of the most common exception scenarios in mortgage origination.</p>
+
+    <div class="lifecycle-stage reveal">
+      <div class="stage-controls" id="stage-buttons">
+        <button class="stage-btn active" data-stage="0" onclick="setStage(0)">Event received</button>
+        <button class="stage-btn" data-stage="1" onclick="setStage(1)">Loan reasons</button>
+        <button class="stage-btn" data-stage="2" onclick="setStage(2)">Spawns agents</button>
+        <button class="stage-btn" data-stage="3" onclick="setStage(3)">Results return</button>
+        <button class="stage-btn" data-stage="4" onclick="setStage(4)">Diary written</button>
+      </div>
+      <div class="stage-canvas" id="stage-canvas">
+        <div id="stage-content-0" class="stage-panel" style="display:block">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.25rem;align-items:start">
+            <div style="width:48px;height:48px;border-radius:10px;background:rgba(110,191,139,0.1);border:1px solid rgba(110,191,139,0.25);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--accent3);flex-shrink:0">↓</div>
+            <div>
+              <div style="font-family:var(--mono);font-size:0.72rem;color:var(--accent3);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">Webhook received — 14:23:07 UTC</div>
+              <p style="font-size:0.9rem;margin:0 0 1rem">The appraisal management company posts a webhook. The ingestion layer routes it as a message to Loan Actor #1247.</p>
+              <div class="diary-block" style="margin:0">
+                <pre>{
+  <span class="key">"to"</span>: <span class="val-str">"loan-1247"</span>,
+  <span class="key">"event"</span>: <span class="val-str">"appraisal_received"</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"value"</span>: <span class="val-num">425000</span>,
+    <span class="key">"effective_date"</span>: <span class="val-str">"2026-04-15"</span>,
+    <span class="key">"appraiser_id"</span>: <span class="val-str">"AP-8832"</span>
+  }
+}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="stage-content-1" class="stage-panel" style="display:none">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.25rem;align-items:start">
+            <div style="width:48px;height:48px;border-radius:10px;background:var(--accent-glow);border:1px solid rgba(212,146,75,0.25);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--accent);flex-shrink:0">⚡</div>
+            <div>
+              <div style="font-family:var(--mono);font-size:0.72rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">Loan actor processes message</div>
+              <p style="font-size:0.9rem;margin:0 0 1rem">The actor reads the message from its mailbox and applies its reasoning logic. It compares the appraised value against the purchase price and recalculates LTV.</p>
+              <div class="diary-block" style="margin:0">
+                <pre><span class="reasoning">// Loan #1247 internal reasoning:
+// Purchase price: $525,000
+// Appraised value: $425,000  (delta: -$100,000)
+// LTV recalculates: 78% → 94.1%
+// This exceeds conventional limit (80%)
+// 
+// Decision: This is a material adverse event.
+// Action plan:
+//   1. Spawn reconsideration-of-value agent
+//   2. Spawn loan restructure agent (model cash-to-close)
+//   3. Spawn notification agent (alert LO + borrower)
+//   4. Set internal timer: 72hr decision deadline</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="stage-content-2" class="stage-panel" style="display:none">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.25rem;align-items:start">
+            <div style="width:48px;height:48px;border-radius:10px;background:rgba(91,160,196,0.1);border:1px solid rgba(91,160,196,0.25);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--accent2);flex-shrink:0">⇅</div>
+            <div>
+              <div style="font-family:var(--mono);font-size:0.72rem;color:var(--accent2);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">Sub-agents spawned in parallel</div>
+              <p style="font-size:0.9rem;margin:0 0 1rem">The loan actor spawns three sub-agents simultaneously. Each operates independently, calling external services and returning results as messages. The loan doesn't wait synchronously — it continues processing other messages in its mailbox.</p>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem">
+                <div style="background:rgba(91,160,196,0.06);border:1px solid rgba(91,160,196,0.2);border-radius:8px;padding:1rem;text-align:center">
+                  <div style="font-family:var(--mono);font-size:0.68rem;color:var(--accent2);margin-bottom:0.4rem">ROV Agent</div>
+                  <div style="font-size:0.78rem;color:var(--text-muted)">Pulls 3 comps, builds rebuttal package</div>
+                </div>
+                <div style="background:rgba(110,191,139,0.06);border:1px solid rgba(110,191,139,0.2);border-radius:8px;padding:1rem;text-align:center">
+                  <div style="font-family:var(--mono);font-size:0.68rem;color:var(--accent3);margin-bottom:0.4rem">Restructure Agent</div>
+                  <div style="font-size:0.78rem;color:var(--text-muted)">Models $100K additional cash-to-close scenarios</div>
+                </div>
+                <div style="background:rgba(212,146,75,0.06);border:1px solid rgba(212,146,75,0.2);border-radius:8px;padding:1rem;text-align:center">
+                  <div style="font-family:var(--mono);font-size:0.68rem;color:var(--accent);margin-bottom:0.4rem">Notify Agent</div>
+                  <div style="font-size:0.78rem;color:var(--text-muted)">Alerts LO via Slack, borrower via SMS</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="stage-content-3" class="stage-panel" style="display:none">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.25rem;align-items:start">
+            <div style="width:48px;height:48px;border-radius:10px;background:rgba(155,142,196,0.1);border:1px solid rgba(155,142,196,0.25);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--purple);flex-shrink:0">↩</div>
+            <div>
+              <div style="font-family:var(--mono);font-size:0.72rem;color:var(--purple);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">Results flow back as messages</div>
+              <p style="font-size:0.9rem;margin:0 0 1rem">Sub-agents complete their work and send result messages back to Loan #1247. The loan processes them one at a time, building a complete picture before deciding next steps.</p>
+              <div class="diary-block" style="margin:0">
+                <pre><span class="key">rov_agent</span>: <span class="val-str">"Found 2 strong comps at $460K+.
+  Rebuttal package generated. Confidence: high."</span>
+
+<span class="key">restructure_agent</span>: <span class="val-str">"Borrower has $82K liquid assets.
+  Scenario A: Bring $100K cash, LTV → 80%. Feasible.
+  Scenario B: Renegotiate price to $425K. LTV → 78%."</span>
+
+<span class="key">notify_agent</span>: <span class="val-str">"LO notified via Slack at 14:24:12.
+  Borrower notified via SMS at 14:24:15.
+  Acknowledgment received from LO at 14:26:03."</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="stage-content-4" class="stage-panel" style="display:none">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:1.25rem;align-items:start">
+            <div style="width:48px;height:48px;border-radius:10px;background:rgba(212,146,75,0.1);border:1px solid rgba(212,146,75,0.25);display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:var(--accent);flex-shrink:0">📋</div>
+            <div>
+              <div style="font-family:var(--mono);font-size:0.72rem;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">Cognitive diary updated</div>
+              <p style="font-size:0.9rem;margin:0 0 1rem">Everything — the event, the reasoning, the sub-agent results, and the decision — is written to the immutable diary. The compacted views (summary.md, decisions.md) are regenerated.</p>
+              <div class="diary-block" style="margin:0;border-color:rgba(212,146,75,0.25)">
+                <pre>{
+  <span class="key">"ts"</span>: <span class="val-str">"2026-04-15T14:23:07Z"</span>,
+  <span class="key">"event"</span>: <span class="val-str">"appraisal_received"</span>,
+  <span class="key">"data"</span>: { <span class="key">"value"</span>: <span class="val-num">425000</span>, <span class="key">"purchase"</span>: <span class="val-num">525000</span> },
+  <span class="key">"reasoning"</span>: <span class="reasoning">"Value $100K below purchase. LTV 94.1% 
+    exceeds 80% conventional limit. Material event."</span>,
+  <span class="key">"actions"</span>: [
+    <span class="val-str">"spawned:rov_agent → 2 strong comps found"</span>,
+    <span class="val-str">"spawned:restructure_agent → 2 viable paths"</span>,
+    <span class="val-str">"spawned:notify_agent → LO + borrower alerted"</span>
+  ],
+  <span class="key">"decision"</span>: <span class="val-str">"Submit ROV with comp package. Set 72hr 
+    timer for AMC response. If ROV denied, present
+    restructure options to borrower."</span>,
+  <span class="key">"state_after"</span>: <span class="val-str">"underwriting:appraisal_dispute"</span>
+}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 5: DIARY -->
+<section id="diary">
+  <div class="container">
+    <span class="section-num reveal">06 — The Cognitive Diary</span>
+    <h2 class="reveal">An immutable record of <em>everything</em></h2>
+
+    <p class="lead reveal">The diary is both the loan's audit trail and its working memory — a single append-only log that captures events, reasoning, actions, and decisions with timestamps and tags.</p>
+
+    <div class="reveal">
+      <p>Traditional event sourcing captures facts: "appraisal received at T1 with value $X." The cognitive diary adds the loan's <strong>reasoning</strong> — why it chose vendor A over vendor B, why it escalated, what its confidence level was. This is the difference between a regulatory audit trail and a cognitive audit trail.</p>
+    </div>
+
+    <div class="folder-tree reveal">
+      <div class="dir">/loan-1247/</div>
+      <div class="indent"><span class="immutable">diary.jsonl</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← immutable, append-only ground truth</div>
+      <div class="indent">summary.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← compacted current state (agent's working memory)</div>
+      <div class="indent">decisions.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← every decision point with rationale</div>
+      <div class="indent">conditions.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← outstanding / cleared conditions</div>
+      <div class="indent">tools-used.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← sub-agent invocation history</div>
+      <div class="indent">mismo-manifest.xml &nbsp;&nbsp;← MISMO-standard document registry</div>
+      <div class="indent"><span class="dir">/documents/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← e-folder (actual artifacts)</div>
+      <div class="indent2">/application/ &nbsp;/credit/ &nbsp;/title/ &nbsp;/appraisal/ &nbsp;/closing/</div>
+      <div class="indent"><span class="dir">/servicing/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← post-close lifecycle data</div>
+      <div class="indent"><span class="chain">/chain-anchors/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← on-chain proof hashes at checkpoints</div>
+    </div>
+
+    <div class="card-grid">
+      <div class="card reveal">
+        <h4>Time travel</h4>
+        <p>Reconstruct the loan's state at any historical moment by replaying the diary to that timestamp. Examiners can see exactly what was known, decided, and done at any point.</p>
+      </div>
+      <div class="card reveal reveal-delay-1">
+        <h4>Context compaction</h4>
+        <p>The compacted files (summary.md, decisions.md) are the loan-agent's "attention layer." It reads summary.md for context rather than replaying its entire 6-month diary — like an LLM reading a compacted context window.</p>
+      </div>
+      <div class="card reveal reveal-delay-2">
+        <h4>Portable identity</h4>
+        <p>When sold, the loan hands over its diary. The new servicer spins up an actor, feeds it the diary, and it reconstitutes with complete history. Radically simpler than today's MISMO XML transfer snapshots.</p>
+      </div>
+      <div class="card reveal reveal-delay-3">
+        <h4>Chain anchors</h4>
+        <p>At key checkpoints (funded, first payment, sold), hash the diary and write it to a chain. Buyers verify provenance without accessing sensitive borrower data. Immutability without on-chain PII.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 7: KNOWLEDGE AS CODE (vault) -->
+<section id="vault">
+  <div class="container">
+    <span class="section-num reveal">07 — Knowledge as Code</span>
+    <h2 class="reveal">Operating procedures the <em>agent can read</em></h2>
+
+    <p class="lead reveal">The diary captures what the loan did. The vault captures what the loan is <em>supposed</em> to do, and why. Both are Markdown. Both are git-backed. Both are human-readable and agent-retrievable. Traditional platforms hide operating logic in configured workflows; loan-as-actor makes it docs-as-code.</p>
+
+    <div class="reveal">
+      <p>In Encompass, the rule that says <em>"if the appraisal comes in more than 10% below purchase, route to the underwriting manager"</em> lives in the Business Rules engine — a configured, proprietary, screenshot-documented decision. When regulators ask why a particular loan was handled a particular way, someone exports a PDF of the rule graph and hopes the field identifiers still make sense. In Vesta, the same rule lives in a workflow JSON payload inside the platform's system of record — portable in theory, opaque in practice.</p>
+      <p>In loan-as-actor, that rule is a Markdown file under <code style="font-family:var(--mono);color:var(--accent2)">vault/procedures/</code> with YAML frontmatter declaring <em>when</em> an agent should use it. The loan retrieves it by description at runtime. A new compliance officer reviews it in a pull request. An examiner reads it as prose.</p>
+    </div>
+
+    <div class="folder-tree reveal">
+      <div class="dir">/vault/</div>
+      <div class="indent">VAULT.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← agent entry point; three-hop retrieval map</div>
+      <div class="indent">CHANGELOG.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← drift log for stable procedures</div>
+      <div class="indent"><span class="dir">procedures/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← runbooks — "use when a rate lock is within 5 days of expiry"</div>
+      <div class="indent"><span class="dir">tools/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← interface specs: AUS, credit, AVM, eRecording, etc.</div>
+      <div class="indent"><span class="dir">reference/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← concepts, schemas, state-machine invariants</div>
+      <div class="indent"><span class="immutable">adr/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← dated architecture decisions, immutable once accepted</div>
+      <div class="indent"><span class="dir">tests/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← input → expected-output pairs; self-check after a procedure</div>
+      <div class="indent"><span class="dir">anti-patterns/</span> &nbsp;&nbsp;&nbsp;← "don't do X; do Y instead"</div>
+      <div class="indent"><span class="dir">_meta/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;← conventions, note templates, Dataview health queries</div>
+    </div>
+
+    <h3 class="reveal">Every note declares its own trigger</h3>
+
+    <div class="reveal">
+      <p>The single most important field in a vault note is the <code>description:</code> line — written as a <em>trigger</em> the agent matches against, not a summary. This is the retrieval handle:</p>
+    </div>
+
+    <div class="diary-block reveal">
+      <pre><span class="key">---</span>
+<span class="key">type</span>: <span class="val-str">procedure</span>
+<span class="key">name</span>: <span class="val-str">Refresh Rate Sheet Cache</span>
+<span class="key">description</span>: <span class="val-str">"Use when downstream pricing looks stale or a lender</span>
+<span class="val-str">              publishes an off-cycle rate sheet update outside the</span>
+<span class="val-str">              normal morning refresh window."</span>
+<span class="key">last_verified</span>: <span class="val-num">2026-04-22</span>
+<span class="key">owner</span>: <span class="val-str">CK</span>
+<span class="key">status</span>: <span class="val-str">stable</span>
+<span class="key">preconditions</span>:
+  - <span class="val-str">No active pricing-lock session in progress</span>
+<span class="key">tools_required</span>:
+  - <span class="val-str">[[tools/lender-portal-api]]</span>
+<span class="key">---</span></pre>
+    </div>
+
+    <div class="card-grid">
+      <div class="card reveal">
+        <div class="card-icon" style="background:rgba(91,160,196,0.12); color:var(--accent2);">V</div>
+        <h4>Version-controlled operating logic</h4>
+        <p>Every change to a procedure is a git commit with a reviewer. Compare with Encompass Business Rules, which live in a proprietary database edited via dropdowns. Diff two versions of a runbook. Bisect a regression. Revert a bad change. Write tests against the procedure.</p>
+      </div>
+      <div class="card reveal reveal-delay-1">
+        <div class="card-icon" style="background:rgba(110,191,139,0.12); color:var(--accent3);">R</div>
+        <h4>Regulator-readable</h4>
+        <p>An examiner doesn't need a guided demo of the Business Rules configuration. They read <code style="font-family:var(--mono);font-size:0.85em">vault/procedures/appraisal-dispute.md</code> to understand how the shop handles a low appraisal, then replay the loan's diary to confirm that's what actually happened.</p>
+      </div>
+      <div class="card reveal reveal-delay-2">
+        <div class="card-icon" style="background:var(--accent-glow); color:var(--accent);">T</div>
+        <h4>Test-linked procedures</h4>
+        <p>Each procedure links to a test under <code>vault/tests/</code> with an explicit input → expected output. Did the procedure still work after last Tuesday's change? Run the test. The procedure and its proof live together, in git, in one repo.</p>
+      </div>
+      <div class="card reveal reveal-delay-3">
+        <div class="card-icon" style="background:rgba(155,142,196,0.12); color:var(--purple);">A</div>
+        <h4>Agent retrieval, three hops</h4>
+        <p>Agent starts at <code>VAULT.md</code>, narrows to a folder INDEX, retrieves the specific note. Every note is under ~400 lines and declares its preconditions, inputs, outputs, and tools required as structured frontmatter. No prompt-engineering. No fine-tuning. No opaque model weights.</p>
+      </div>
+    </div>
+
+    <div class="reveal" style="margin-top:2rem">
+      <blockquote>
+        <p>The workflow engine is the wrong abstraction. The workflow is prose. The engine is a programming language that happens to render as dropdowns.</p>
+      </blockquote>
+    </div>
+
+    <h3 class="reveal">Why this dismantles the ICE moat</h3>
+
+    <div class="reveal">
+      <p>ICE's market position depends on the operating logic of a lender being <strong>stuck inside the ICE platform</strong>. Business rules, workflow configurations, custom fields, screen layouts — all living in Encompass-proprietary formats that make switching a multi-year IT project. When a lender's knowledge base is <em>a git repo of Markdown files</em>, the switch becomes: point the new runtime at the same vault. The loan-actor retrieves the same procedures. The same audit trail structure applies. The same test suite validates. <strong>The moat drains to zero.</strong></p>
+      <p>This is how a serious challenger beats a 70%-market-share incumbent: not by building a better workflow engine, but by moving the workflow out of the engine entirely.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 8: ROI — WHAT IT'S WORTH -->
+<section id="roi">
+  <div class="container">
+    <span class="section-num reveal">08 — What It's Worth</span>
+    <h2 class="reveal">The why's, in <em>dollars and days</em></h2>
+
+    <p class="lead reveal">Architecture wins only if it moves the operational needle. Two industry baselines anchor every conversation about mortgage-tech ROI, and both are brutal.</p>
+
+    <div class="card-grid reveal">
+      <div class="card" style="border-color:rgba(199,93,93,0.25); background:rgba(199,93,93,0.03);">
+        <div style="font-family:var(--mono); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--danger); margin-bottom:0.5rem;">Cost per funded loan</div>
+        <div style="font-family:var(--serif); font-size:2.4rem; color:var(--text); line-height:1;">$8,887</div>
+        <p style="font-size:0.82rem; margin-top:0.5rem;"><a href="https://mortgageorb.com/mba-cost-originate-mortgage-hit-new-peak-q1-8887-per-loan">MBA Quarterly Mortgage Bankers Performance Report, Q1 2025</a> — up from $8,475 in Q4 2024. All-in operational cost including labor, tech, compliance, overhead.</p>
+      </div>
+      <div class="card" style="border-color:rgba(199,93,93,0.25); background:rgba(199,93,93,0.03);">
+        <div style="font-family:var(--mono); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.12em; color:var(--danger); margin-bottom:0.5rem;">Application → close, purchase</div>
+        <div style="font-family:var(--serif); font-size:2.4rem; color:var(--text); line-height:1;">42 days</div>
+        <p style="font-size:0.82rem; margin-top:0.5rem;"><a href="https://sf.freddiemac.com/resources/mortgage-closing-cycle-time-benchmark-study">Freddie Mac Mortgage Closing Cycle Time Benchmark Study</a> — industry average, new purchase. Refinance is ~45 days.</p>
+      </div>
+    </div>
+
+    <h3 class="reveal">What agentic station-optimization has already delivered</h3>
+
+    <div class="reveal">
+      <p>The serious proof point in market today is <a href="https://mozaiq.ai/the-loan-store-case-study-mortgage-ai-automation/">MOZAIQ's deployment at The Loan Store</a>, a top-ten wholesale lender. Incremental deployment of MOZAIQ's Loan Assist platform on top of Encompass produced documented results:</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4, 1fr); gap: 1rem; margin: 2rem 0;" class="reveal">
+      <div style="background:rgba(110,191,139,0.05); border:1px solid rgba(110,191,139,0.2); border-radius:10px; padding:1.25rem; text-align:center;">
+        <div style="font-family:var(--serif); font-size:1.8rem; color:var(--accent3); line-height:1;">40%</div>
+        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.5rem;">cost-per-loan reduction in 12 months</div>
+      </div>
+      <div style="background:rgba(110,191,139,0.05); border:1px solid rgba(110,191,139,0.2); border-radius:10px; padding:1.25rem; text-align:center;">
+        <div style="font-family:var(--serif); font-size:1.8rem; color:var(--accent3); line-height:1;">50%+</div>
+        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.5rem;">improvement in loan turn time</div>
+      </div>
+      <div style="background:rgba(110,191,139,0.05); border:1px solid rgba(110,191,139,0.2); border-radius:10px; padding:1.25rem; text-align:center;">
+        <div style="font-family:var(--serif); font-size:1.8rem; color:var(--accent3); line-height:1;">83%</div>
+        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.5rem;">faster appraisal reviews (30 min → 5 min)</div>
+      </div>
+      <div style="background:rgba(110,191,139,0.05); border:1px solid rgba(110,191,139,0.2); border-radius:10px; padding:1.25rem; text-align:center;">
+        <div style="font-family:var(--serif); font-size:1.8rem; color:var(--accent3); line-height:1;">200×</div>
+        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.5rem;">monthly origination volume (12/24 mo)</div>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <p>Read those numbers carefully. They tell a consistent story: <strong>putting smart agents at the existing stations unlocks real, measurable headroom</strong>. 40% of a $8,800 per-loan cost is nearly $3,500 of savings — proven, in production, today, at scale. That's the floor we should anchor to.</p>
+    </div>
+
+    <h3 class="reveal">Where the architectural shift should compound further</h3>
+
+    <div class="reveal">
+      <p>MOZAIQ's wins come from making each station faster and more accurate. They don't address the structure — the handoffs, the re-keyed data, the perimeter fees at MERS and Simplifile, the separate servicing boarding. Loan-as-Actor targets the structural layer MOZAIQ sits on top of. Three compounding effects to validate against a prototype:</p>
+    </div>
+
+    <div class="card-grid reveal">
+      <div class="card">
+        <div class="card-icon" style="background:rgba(91,160,196,0.12); color:var(--accent2);">+</div>
+        <h4>Handoff elimination</h4>
+        <p>Station-optimization still pays re-keying, re-boarding, and cross-system reconciliation costs at every boundary. A single-actor lifecycle removes those boundaries. The savings stack on top of MOZAIQ-style station wins rather than replacing them.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:var(--accent-glow); color:var(--accent);">⟲</div>
+        <h4>Regulator-readable audits</h4>
+        <p>Today's CFPB exam is forensic — 2–6 weeks reconciling LOS, servicing, imaging, and compliance across siloed systems. The diary <em>is</em> the narrative; the vault is the written shop procedure. Replay-on-demand collapses the effort in principle. The prototype will measure how far.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon" style="background:rgba(110,191,139,0.12); color:var(--accent3);">→</div>
+        <h4>Origination → servicing continuity</h4>
+        <p>Every platform today — legacy or modern — produces a MISMO data tape at servicing boarding. Loan-as-actor is the same actor continuing. Boarding cost should approach zero. Verify against real servicing boarding benchmarks in phase two.</p>
+      </div>
+    </div>
+
+    <blockquote class="reveal">
+      <p>Encompass saves you keystrokes at a workstation. MOZAIQ proved the agents at each station are worth 40%. Loan-as-Actor removes the stations.</p>
+    </blockquote>
+
+    <div class="reveal" style="margin-top:2rem; padding: 1.25rem; background: rgba(91,160,196,0.05); border: 1px solid rgba(91,160,196,0.2); border-radius: 10px;">
+      <div style="font-family:var(--mono);font-size:0.68rem;color:var(--accent2);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.5rem;">What we're not claiming</div>
+      <p style="font-size:0.85rem; margin:0;">No cost-per-loan target, no cycle-time target, no pull-through target in this paper. Those numbers require a prototype run against a real loan portfolio, and publishing speculative targets before that undermines the honest claims above. The MOZAIQ 40% is a verified floor for what agentic optimization at the station layer delivers; loan-as-actor's job is to show what the <em>structural</em> layer adds on top. Business-case quantification lands in the prototype phase — see Section 11.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 9: AT SCALE -->
+<section id="at-scale">
+  <div class="container">
+    <span class="section-num reveal">09 — At Scale</span>
+    <h2 class="reveal">From 1 loan to <em>100,000</em></h2>
+
+    <p class="lead reveal">The BEAM VM (Erlang's runtime) was designed to run millions of lightweight processes. Modern implementations extend this across languages and cloud platforms.</p>
+
+    <div class="reveal">
+      <p>A bare Erlang process starts at about 2KB of memory — but a Loan Actor carrying borrower data, property info, loan terms, conditions, and compacted working memory is realistically <strong>50–200KB when hydrated</strong>. Even so, 50,000 active loans at 200KB is roughly 10GB — comfortable on a single node. And with virtual actors (Orleans-style), most loans are <strong>dehydrated</strong> at any given moment: a loan in quiet servicing consumes zero memory until its next event. The BEAM VM supports transparent distribution across multiple nodes: a message to <code style="font-family:var(--mono);font-size:0.88em;color:var(--accent2)">{:loan, "1247"}</code> works whether Loan 1247 lives on the local machine or across the cluster.</p>
+    </div>
+
+    <div class="reveal" style="margin-top:2rem">
+      <h3>The runtime bet: BEAM (Erlang / Elixir)</h3>
+      <p>The prototype is built on the <strong>BEAM VM</strong> — Erlang's runtime, 30+ years of battle-testing in telecom, Ericsson's answer to "how do you run millions of independent stateful processes where any one can crash without taking the system down." The mortgage problem is structurally the same: long-running, independent, stateful, failure-tolerant. Elixir gives it modern ergonomics; OTP supervision gives it the failure story out of the box; hot code loading lets regulatory updates deploy while live loans keep running.</p>
+      <p>The actor pattern also lands elsewhere: Microsoft Orleans brings Virtual Actors to the .NET world (a loan in quiet servicing rehydrates on the next payment event), Cloudflare Durable Objects productize actors at the edge, and Akka ports OTP's supervision model to the JVM — used at scale by LinkedIn, PayPal, and several banks. Those are viable targets for future ports or specific sub-systems; the primary architecture assumes BEAM.</p>
+    </div>
+
+    <div class="reveal" style="margin-top:2rem">
+      <h3>Virtual actor lifecycle</h3>
+      <p>You don't manually manage 500,000 loan-actor instances. The runtime activates an actor when a message arrives, loads its state from the diary, processes the message, writes to the diary, and deactivates when idle. At any given moment, only the loans with active events are resident in memory. A loan in quiet servicing consumes zero compute until its next payment event.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 7: SECONDARY MARKET -->
+<section id="secondary">
+  <div class="container">
+    <span class="section-num reveal">10 — Secondary Market</span>
+    <h2 class="reveal">Loans that <em>sell themselves</em></h2>
+
+    <p class="lead reveal">A loan-actor that carries its own provenance, characteristics, and compliance history can actively participate in pooling and trading.</p>
+
+    <div class="reveal">
+      <p>Instead of a capital markets desk running queries against a database to find eligible assets, the loans themselves respond to investor appetite signals. A loan-actor can evaluate: "I'm a 30-year fixed, 720 FICO, 75% LTV, fully documented, I satisfy the criteria for Pool X." This transforms the secondary market from a <strong>pull model</strong> (desk queries loans) to a <strong>push model</strong> (loans advertise their eligibility).</p>
+    </div>
+
+    <div class="reveal">
+      <blockquote>
+        <p>The loan carries its complete cognitive provenance. When a buyer validates a pool, they don't rely on a static data tape — they verify each loan's diary against its chain anchor.</p>
+      </blockquote>
+    </div>
+
+    <div class="reveal">
+      <h3>The MISMO + chain story</h3>
+      <p>MISMO already defines the canonical data model for mortgage documents. The diary folder aligns with MISMO document categories while adding the cognitive layer. The chain anchors provide immutability proof without putting PII on-chain. Together, you get: <strong>MISMO for interoperability, the diary for provenance, and the chain for trust</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- SECTION 8: NEXT STEPS -->
+<section id="next">
+  <div class="container">
+    <span class="section-num reveal">11 — Building It</span>
+    <h2 class="reveal">From concept to <em>prototype</em></h2>
+
+    <p class="lead reveal">The architecture is implementable with existing technology. The following artifacts form the specification and business case for a working prototype.</p>
+
+    <div class="card-grid">
+      <div class="card reveal" style="border-color:rgba(212,146,75,0.25)">
+        <h4 style="color:var(--accent)">Architecture specification</h4>
+        <p>Full technical spec: actor runtime selection, diary schema (JSONL event format), MISMO mapping, sub-agent catalog, supervision tree design, deployment topology.</p>
+      </div>
+      <div class="card reveal reveal-delay-1" style="border-color:rgba(91,160,196,0.25)">
+        <h4 style="color:var(--accent2)">Working prototype</h4>
+        <p>Single-loan actor with 3 sub-agents (credit, appraisal, AUS), diary implementation, and a web UI showing the loan's state machine and diary in real-time.</p>
+      </div>
+      <div class="card reveal reveal-delay-2" style="border-color:rgba(110,191,139,0.25)">
+        <h4 style="color:var(--accent3)">Business case</h4>
+        <p>Quantified comparison: cycle time reduction, exception resolution speed, handoff elimination, audit cost savings, secondary market premium from provenance.</p>
+      </div>
+      <div class="card reveal reveal-delay-3" style="border-color:rgba(155,142,196,0.25)">
+        <h4 style="color:var(--purple)">Industry positioning</h4>
+        <p>Named pattern: "Loan-as-Actor." Theoretical grounding (Actor Model + Event Sourcing + Digital Twins) + mortgage domain specifics. First mover in entity-centric agentic mortgage architecture.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p style="font-family:var(--serif);font-size:1.1rem;color:var(--text-muted);margin-bottom:0.5rem">Loan-as-Actor</p>
+    <p>April 2026 · Draft for discussion</p>
+  </div>
+</footer>
+
+<script>
+// --- NAV VISIBILITY ---
+const nav = document.getElementById('topnav');
+let lastScroll = 0;
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  if (y > 400) nav.classList.add('visible');
+  else nav.classList.remove('visible');
+  lastScroll = y;
+});
+
+// --- SCROLL REVEAL ---
+const reveals = document.querySelectorAll('.reveal');
+const io = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+}, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+reveals.forEach(el => io.observe(el));
+
+// --- LIFECYCLE STEPPER ---
+function setStage(n) {
+  document.querySelectorAll('.stage-btn').forEach((b, i) => b.classList.toggle('active', i === n));
+  document.querySelectorAll('.stage-panel').forEach((p, i) => p.style.display = i === n ? 'block' : 'none');
+}
+
+// --- ACTOR PROPERTIES ANIMATION ---
+function animateActorProps() {
+  const els = [
+    ['ap-super', 200],
+    ['ap-labels', 400],
+    ['ap-msg1', 600], ['ap-arr1', 700],
+    ['ap-msg2', 800], ['ap-arr2', 900],
+    ['ap-msg3', 1000], ['ap-arr3', 1100],
+    ['ap-diary', 1400],
+    ['ap-sub1', 1800], ['ap-spawn1', 1850],
+    ['ap-sub2', 2000], ['ap-spawn2', 2050],
+    ['ap-sub3', 2200], ['ap-spawn3', 2250],
+  ];
+  // Reset
+  els.forEach(([id]) => {
+    const el = document.getElementById(id);
+    if (el) { el.style.transition = 'none'; el.setAttribute('opacity', '0'); }
+  });
+  requestAnimationFrame(() => {
+    els.forEach(([id, delay]) => {
+      const el = document.getElementById(id);
+      if (el) {
+        setTimeout(() => {
+          el.style.transition = 'opacity 0.5s ease';
+          el.setAttribute('opacity', '1');
+        }, delay);
+      }
+    });
+  });
+}
+
+// Auto-animate on scroll
+const actorDemo = document.getElementById('actor-props-demo');
+const actorIo = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { setTimeout(animateActorProps, 300); actorIo.unobserve(e.target); } });
+}, { threshold: 0.3 });
+if (actorDemo) actorIo.observe(actorDemo);
+
+// --- STATION ASSEMBLY LINE ANIMATION ---
+// The loan box slides left-to-right through five stations, pausing at each.
+// Each station flashes as the loan enters. Between stations, queue delays
+// pulse and context-loss items drop into the log at bottom.
+function animateStations() {
+  const loan = document.getElementById('st-loan');
+  if (!loan) return;
+
+  const flashes = ['st-flash1', 'st-flash2', 'st-flash3', 'st-flash4', 'st-flash5'];
+  const queues = ['st-q1', 'st-q2', 'st-q3', 'st-q4'];
+  const losses = ['st-loss1', 'st-loss2', 'st-loss3', 'st-loss4', 'st-loss5', 'st-loss6'];
+
+  // The x-offset to translate the loan box to each station position
+  // station centers: 95, 245, 395, 545, 695. loan width is 120, starts at 5.
+  // target translateX values:
+  const stops = [30, 180, 330, 480, 630];
+
+  // Reset
+  loan.style.transition = 'none';
+  loan.style.transform = 'translateX(0)';
+  flashes.forEach(id => { const el = document.getElementById(id); if (el) { el.style.transition = 'none'; el.setAttribute('opacity', '0'); }});
+  losses.forEach(id => { const el = document.getElementById(id); if (el) { el.style.transition = 'none'; el.setAttribute('opacity', '0'); }});
+  queues.forEach(id => { const el = document.getElementById(id); if (el) el.setAttribute('opacity', '0.35'); });
+
+  requestAnimationFrame(() => {
+    loan.style.transition = 'transform 1.2s cubic-bezier(0.5, 0.1, 0.3, 1)';
+
+    stops.forEach((x, i) => {
+      // Move loan to station i
+      setTimeout(() => {
+        loan.style.transform = 'translateX(' + x + 'px)';
+      }, i * 1800);
+
+      // Flash the station on arrival
+      setTimeout(() => {
+        const f = document.getElementById(flashes[i]);
+        if (f) {
+          f.style.transition = 'opacity 0.4s ease';
+          f.setAttribute('opacity', '1');
+          setTimeout(() => f.setAttribute('opacity', '0'), 600);
+        }
+      }, i * 1800 + 1100);
+
+      // Pulse the queue about to be crossed
+      if (i < 4) {
+        setTimeout(() => {
+          const q = document.getElementById(queues[i]);
+          if (q) {
+            q.setAttribute('opacity', '0.95');
+            setTimeout(() => q.setAttribute('opacity', '0.35'), 700);
+          }
+        }, i * 1800 + 1500);
+      }
+    });
+
+    // Drop the context-loss entries as the loan progresses
+    losses.forEach((id, i) => {
+      setTimeout(() => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.style.transition = 'opacity 0.5s ease';
+          el.setAttribute('opacity', '1');
+        }
+      }, 2200 + i * 1200);
+    });
+  });
+}
+
+const stationDemo = document.getElementById('station-demo');
+const stationIo = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { setTimeout(animateStations, 400); stationIo.unobserve(e.target); } });
+}, { threshold: 0.3 });
+if (stationDemo) stationIo.observe(stationDemo);
+
+// --- VENDOR PERIMETER ANIMATION ---
+// The loan crosses three vendor perimeters (Vesta → Valon → MOZAIQ).
+// At each perimeter boundary, a "tax" marker flashes showing MISMO re-board,
+// MERS/Simplifile fees, and re-keying. Reason-lost indicators accumulate.
+function animateVendors() {
+  const loan = document.getElementById('vn-loan');
+  if (!loan) return;
+
+  // loan starts at x=0, width=110. Stops for each perimeter center + boundary crossings:
+  // Vesta perimeter center ≈ x=140, so translate = 85
+  // Between Vesta & Valon boundary ≈ x=275, translate = 220
+  // Valon perimeter center ≈ x=410, translate = 355
+  // Between Valon & MOZAIQ boundary ≈ x=545, translate = 490
+  // MOZAIQ perimeter center ≈ x=680, translate = 625
+  const path = [
+    { tx: 85,  delay: 400 },   // enter Vesta
+    { tx: 220, delay: 1800 },  // cross boundary (Vesta → Valon)
+    { tx: 355, delay: 2800 },  // enter Valon
+    { tx: 490, delay: 4400 },  // cross boundary (Valon → MOZAIQ)
+    { tx: 625, delay: 5400 },  // enter MOZAIQ
+  ];
+
+  loan.style.transition = 'none';
+  loan.style.transform = 'translateX(0)';
+  ['vn-tax1', 'vn-tax2', 'vn-lost1', 'vn-lost2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.transition = 'none'; el.setAttribute('opacity', '0'); }
+  });
+
+  requestAnimationFrame(() => {
+    loan.style.transition = 'transform 1.4s cubic-bezier(0.5, 0.1, 0.3, 1)';
+
+    path.forEach((p) => {
+      setTimeout(() => {
+        loan.style.transform = 'translateX(' + p.tx + 'px)';
+      }, p.delay);
+    });
+
+    // Fade in the perimeter-crossing tax markers as the loan crosses
+    setTimeout(() => {
+      const t1 = document.getElementById('vn-tax1');
+      if (t1) { t1.style.transition = 'opacity 0.5s ease'; t1.setAttribute('opacity', '1'); }
+    }, 2000);
+    setTimeout(() => {
+      const l1 = document.getElementById('vn-lost1');
+      if (l1) { l1.style.transition = 'opacity 0.5s ease'; l1.setAttribute('opacity', '1'); }
+    }, 2400);
+    setTimeout(() => {
+      const t2 = document.getElementById('vn-tax2');
+      if (t2) { t2.style.transition = 'opacity 0.5s ease'; t2.setAttribute('opacity', '1'); }
+    }, 4600);
+    setTimeout(() => {
+      const l2 = document.getElementById('vn-lost2');
+      if (l2) { l2.style.transition = 'opacity 0.5s ease'; l2.setAttribute('opacity', '1'); }
+    }, 5000);
+  });
+}
+
+const vendorDemo = document.getElementById('vendor-demo');
+const vendorIo = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { setTimeout(animateVendors, 400); vendorIo.unobserve(e.target); } });
+}, { threshold: 0.3 });
+if (vendorDemo) vendorIo.observe(vendorDemo);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,39 @@
+# Elixir / Mix
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+*.beam
+/config/*.secret.exs
+.elixir_ls/
+
+# Mnesia / runtime data
+apps/loan_actor/priv/mnesia*/
+apps/loan_actor/priv/diary_files/*
+!apps/loan_actor/priv/diary_files/.gitkeep
+
+# Node / frontend
+apps/web/node_modules/
+apps/web/dist/
+apps/web/.vite/
+apps/web/playwright-report/
+apps/web/test-results/
+apps/web/coverage/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Agent folder may contain credentials per spec-kit warning — keep skills only
+# (Adjust if you want to publish or share)
+.claude/settings.local.json
+
+# Work log — private session journal per CLAUDE.md §6a; not part of the artifact trail
+work-log/

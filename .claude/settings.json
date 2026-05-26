@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /c/Users/camer/.claude/projects/h--Projects-Loan-As-Actor/memory)",
+      "Read(//c/Users/camer/.claude/projects/h--Projects-Loan-As-Actor/memory/**)",
+      "WebFetch(domain:www.copilotkit.ai)",
+      "WebFetch(domain:docs.copilotkit.ai)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
