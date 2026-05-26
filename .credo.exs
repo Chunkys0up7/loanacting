@@ -16,17 +16,17 @@
       strict: true,
       plugins: [],
       requires: [
-        # Custom checks (implementations land in FT-012, FT-020, FT-021)
-        "apps/loan_actor/lib/credo/checks/loop_tagging.ex",
-        "apps/loan_actor/lib/credo/checks/no_llm.ex",
-        "apps/loan_actor/lib/credo/checks/no_direct_state_mutation.ex"
+        # Custom checks register here once landed (FT-012, FT-020, FT-021):
+        # "apps/loan_actor/lib/credo/checks/loop_tagging.ex",
+        # "apps/loan_actor/lib/credo/checks/no_llm.ex",
+        # "apps/loan_actor/lib/credo/checks/no_direct_state_mutation.ex"
       ],
       checks: %{
         enabled: [
-          # Custom (project-specific, constitution-enforcing)
-          {LoanActor.Credo.LoopTagging, []},
-          {LoanActor.Credo.NoLLM, []},
-          {LoanActor.Credo.NoDirectStateMutation, []},
+          # Custom (added per FT task — commented until landed):
+          # {LoanActor.Credo.LoopTagging, []},      # FT-020
+          # {LoanActor.Credo.NoLLM, []},            # FT-021
+          # {LoanActor.Credo.NoDirectStateMutation, []}, # FT-012
 
           # Standard Credo set — leave defaults, strict mode picks them up
           {Credo.Check.Consistency.ExceptionNames, []},

@@ -87,9 +87,9 @@ Append-only diary record.
 | `actor` | `String.t` | Operator id, or `"system"`. |
 | `payload_hash` | `binary` (32 bytes BLAKE2b-256) | Hash of canonical-JSON of payload AFTER `PIIGuard`. |
 | `payload_ref` | `binary \| nil` | Optional pointer (URI) into the (future) PII vault. `nil` in foundation. |
-| `prev_hash` | `binary` (32 bytes) | Hash of the previous diary entry's `payload_hash`, or zero-bytes for entry 0. |
+| `prev_hash` | `binary` (32 bytes) | BLAKE2b-256 hash of the previous diary entry's `payload_hash`, or 32 zero-bytes for entry 0 (genesis). |
 
-**Invariant.** For every loan, `diary[N].prev_hash == diary[N-1].payload_hash`. Verification scans the chain and fails on any mismatch.
+**Invariant.** For every loan, `diary[N].prev_hash == BLAKE2b-256(diary[N-1].payload_hash)` for `N > 0`, and `diary[0].prev_hash == <<0::256>>`. This matches `contracts/diary-store-behaviour.md`. `verify_chain/1` walks the chain end-to-end and fails on any mismatch.
 
 ### `%LoanActor.HITLRequest{}` and `%LoanActor.HITLResponse{}`
 

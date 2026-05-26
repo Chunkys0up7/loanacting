@@ -9,7 +9,7 @@ defmodule LoanActor.MixProject do
       config_path: "../../config/config.exs",
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
-      elixir: "~> 1.16",
+      elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -23,7 +23,7 @@ defmodule LoanActor.MixProject do
 
   def application do
     [
-      mod: {LoanActor.Application, []},
+      # mod: {LoanActor.Application, []}, # restored in FT-016 when supervisor lands
       extra_applications: [:logger, :crypto, :mnesia]
     ]
   end
