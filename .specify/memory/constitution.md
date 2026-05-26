@@ -1,22 +1,25 @@
 <!--
 Sync Impact Report
 ==================
-Version change: (none) → 1.0.0
-Bump rationale: Initial ratification of the Loan-as-Actor constitution.
-Modified principles: N/A (initial draft)
+Version change: 1.0.0 → 1.1.0
+Bump rationale (MINOR): Added new section "Post-Implementation Audit Cycle"
+  formalizing what happens after /speckit-implement completes for a spec.
+  Driven by intent 0002.
+Modified principles: none renamed/redefined.
 Added sections:
-  - Core Principles (I–VII)
-  - Architectural Invariants
-  - Development Workflow (Spec-Driven)
-  - Governance
+  - Post-Implementation Audit Cycle (between Development Workflow and Governance)
 Removed sections: N/A
 Templates requiring updates:
-  - .specify/templates/plan-template.md          ⚠ pending (Constitution Check section may need additions; review in /speckit-plan)
-  - .specify/templates/spec-template.md          ⚠ pending (review scope & requirements alignment)
-  - .specify/templates/tasks-template.md         ⚠ pending (task taxonomy must reflect testing/diary/HITL gates)
-  - .specify/templates/checklist-template.md     ⚠ pending (taxonomic coverage categories must appear)
-Follow-up TODOs:
-  - TODO(RATIFICATION_DATE): confirm 2026-05-26 as official adoption date with project owner.
+  - intents/TEMPLATE.md                          ✅ updated (lifecycle adds Closed)
+  - intents/README.md                            ✅ updated (lifecycle table)
+  - CLAUDE.md                                    ✅ updated (new §6b)
+  - specs/001-loan-actor-foundation/
+      checklists/definition-of-done.md           ✅ updated (Closeout section)
+  - .specify/templates/checklist-template.md     ⚠ pending (future intents should
+                                                   reference closeout artifacts)
+
+Prior history:
+  v1.0.0 (2026-05-26) — Initial ratification.
 -->
 
 # Loan-as-Actor Constitution
@@ -161,6 +164,63 @@ The following behaviors are constitutionally forbidden:
 
 ---
 
+## Post-Implementation Audit Cycle
+
+Every spec runs through a closeout phase after `/speckit-implement` has merged all `FT-*` tasks for it. The phase produces exactly three artifacts and one commit; intent status moves from `Implemented` → `Closed`.
+
+### Artifacts (all required)
+
+Written into the spec's directory, alongside `spec.md` / `plan.md` / etc.
+
+1. **`audit.md`** — Independent verification that the merged code fulfills the spec.
+   - SHOULD be authored by an operator/agent different from the implementer. Solo work is permitted; in that case the auditor self-attests and the document records it.
+   - MUST list every spec FR / NFR / SC and map to the test or code location proving fulfillment.
+   - MUST list deviations from the spec (any FR / NFR / SC modified, deferred, or interpreted differently than the original spec stated). Empty deviation list is acceptable; missing deviation section is a fail.
+   - MUST list any procedure documents (`priv/procedures/…`) added or modified during implementation, with their trigger conditions.
+
+2. **`report.md`** — Operator-facing implementation report.
+   - MUST summarize what shipped in business language (no Elixir module names in the summary; technical detail comes later in the doc).
+   - MUST list follow-ups: known bugs, deferred work, performance observations, anything that should become a future intent.
+   - MUST link the PRs (or commit SHAs) that implemented each track in `tasks.md`.
+   - SHOULD include a screenshot or recording reference for any UI-touching feature.
+
+3. **`test-evidence.md`** — Testing and test-data closure.
+   - MUST contain a coverage taxonomy table: for each category (`happy`, `boundary`, `error`, `race`, `replay`, `regulatory`, `security`, `contract`, `performance`), list the test file(s) and which spec SCs they verify. N/A entries are permitted with a one-sentence justification.
+   - MUST contain a factory inventory: for each entity in the spec's `data-model.md`, list the factory function(s) and the scenarios they cover, per the `test-data-forge` skill discipline.
+   - MUST contain a load-test summary if NFR budgets exist for the spec: actual measured numbers (p50/p95/p99 latencies, peak memory, throughput) versus the spec's budgets.
+   - MUST cite the green CI run that produced the evidence.
+
+### Commit format
+
+```
+audit(NNNN): <slug> — implementation closeout (v<spec-version>)
+```
+
+- Exactly one commit per spec closeout.
+- Contains the three artifacts above PLUS the intent status change (`Implemented` → `Closed`) PLUS any updated cross-references.
+- MUST NOT contain implementation code, test code, or production config. Those landed in the FT-* PRs.
+- If a follow-up intent is identified during closeout, it is created as a SEPARATE intent file in `intents/`, not in the closeout commit.
+
+### Discipline rules
+
+- **No spec is "Done" without `audit.md`.** A spec whose `FT-*` PRs are merged but whose `audit.md` is missing is in state `Implemented`, not `Closed`. CI MUST surface this state to operators.
+- **An empty audit is a fail.** "All criteria met, no deviations" is acceptable language only if independently verified and explicitly stated; copy-pasted boilerplate is grounds for rejection.
+- **Audit findings outrank PR review.** If the audit finds a spec criterion unmet by merged code, the spec moves back to `Implemented` and the gap is closed before re-closeout.
+- **Test creation discipline (mirror of Principle V).** `test-evidence.md`'s taxonomy table is the formal record that Principle V was satisfied. A missing category without justification is a constitution violation.
+- **Test data generation discipline.** `test-evidence.md`'s factory inventory is the formal record that the `test-data-forge` skill was followed. New entities without factories are a constitution violation.
+
+### Lifecycle status (extended)
+
+| Status | Meaning |
+|---|---|
+| `Draft` | Intent being written. |
+| `Ready` | Intent author considers it complete; feed to `/speckit-specify`. |
+| `Specified` | Execution spec exists. Intent is frozen. |
+| `Implemented` | All `FT-*` tasks merged; closeout has not yet produced its artifacts. |
+| **`Closed`** | Closeout artifacts committed via the `audit(NNNN)` commit. Intent file's status updated. **Terminal state.** |
+| `Abandoned` | Decided not to do. Closeout cycle does not apply. |
+| `Superseded` | Replaced by a later intent. Closeout cycle does not apply. |
+
 ## Governance
 
 - **Authority**: This constitution supersedes any guidance not derived from it. Conflicts resolve in favor of the constitution.
@@ -172,4 +232,4 @@ The following behaviors are constitutionally forbidden:
 - **Compliance review**: every PR description MUST state how the change complies with this constitution. PRs that do not are rejected by the reviewer (human or agent).
 - **Source of truth for principles**: this file. `CLAUDE.md` mirrors these principles for agent context but does not override them.
 
-**Version**: 1.0.0 | **Ratified**: 2026-05-26 | **Last Amended**: 2026-05-26
+**Version**: 1.1.0 | **Ratified**: 2026-05-26 | **Last Amended**: 2026-05-26

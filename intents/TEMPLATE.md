@@ -2,7 +2,7 @@
 id: NNNN
 slug: short-kebab-slug
 title: One-sentence title in plain language
-status: Draft           # Draft | Ready | Specified | Implemented | Abandoned | Superseded
+status: Draft           # Draft | Ready | Specified | Implemented | Closed | Abandoned | Superseded
 author: <name>
 created: YYYY-MM-DD
 supersedes: []          # list of intent ids, if any

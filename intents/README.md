@@ -35,7 +35,8 @@ Use [`TEMPLATE.md`](TEMPLATE.md). The required sections:
 | `Draft` | Being written. Not yet fed to spec-kit. |
 | `Ready` | Author considers it complete enough to feed to `/speckit-specify`. |
 | `Specified` | Execution spec exists at `specs/<feature>/spec.md`. Intent is frozen. |
-| `Implemented` | All tasks closed, tests green, merged. |
+| `Implemented` | All `FT-*` tasks merged; closeout artifacts NOT yet produced. |
+| `Closed` | Closeout artifacts committed via `audit(NNNN)` commit. **Terminal.** |
 | `Abandoned` | Decided not to do. Keep the file; document why. |
 | `Superseded` | Replaced by a later intent. Link to it. |
 

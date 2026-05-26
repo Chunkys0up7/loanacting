@@ -127,6 +127,50 @@ If you find yourself doing work that *would* match a skill but the skill isn't f
 
 ---
 
+## 6b. Post-implementation audit cycle — every spec gets a closeout
+
+After every `FT-*` task PR for a spec has merged, the spec runs through a **closeout phase** before its intent can move to `Closed`. Three artifacts, one commit. (Full normative wording: constitution v1.1.0 "Post-Implementation Audit Cycle".)
+
+```
+spec(NNNN) commit                          ← spec authored (§6a)
+   │
+   ▼
+FT-001 PR, FT-002 PR, … (many)             ← implementation (each tests + code)
+   │
+   ▼
+audit(NNNN) commit                         ← closeout (§6b — THIS section)
+  ├── specs/NNN-slug/audit.md              independent verification of spec ↔ code
+  ├── specs/NNN-slug/report.md             operator-facing implementation report
+  └── specs/NNN-slug/test-evidence.md      taxonomy + factory + load-test record
+```
+
+### What goes in each artifact
+
+- **`audit.md`** — SHOULD have a different author than the implementer (solo work permitted, self-attest). MUST map every FR/NFR/SC to the test or code that proves it. MUST list deviations (empty list OK; missing section NOT OK). MUST list new/changed procedure documents.
+- **`report.md`** — Plain business-language summary; PR/SHA links by track; follow-up list (becomes future intents); UI screenshots where relevant.
+- **`test-evidence.md`** — Coverage taxonomy table (happy / boundary / error / race / replay / regulatory / security / contract / performance) mapped to SCs; factory inventory per entity (`test-data-forge` discipline); load-test actuals vs. NFR budgets; green CI run cited.
+
+### Commit format
+
+```
+audit(NNNN): <slug> — implementation closeout (v<spec-version>)
+```
+
+One commit, three artifacts plus the intent status change `Implemented` → `Closed`. **No code in this commit.** Follow-up intents go in their own files in `intents/`.
+
+### Discipline triggers
+
+- The `test-guardian` skill MUST be invoked when authoring `test-evidence.md`.
+- The `test-data-forge` skill MUST be invoked for the factory inventory.
+- "All criteria met, no deviations" is acceptable ONLY when verified and explicitly stated — boilerplate is a fail.
+- Audit findings outrank PR review. If `audit.md` finds a gap, intent moves back to `Implemented`, gap is closed, closeout is re-attempted.
+
+### Lifecycle (extended)
+
+`Draft` → `Ready` → `Specified` → `Implemented` → **`Closed`** (terminal).
+
+---
+
 ## 6a. Commit cadence — one spec, one check-in
 
 **Rule.** Every completed spec is one git commit. Not less (no committing mid-spec), not more (no splitting an intent's specs across commits).
