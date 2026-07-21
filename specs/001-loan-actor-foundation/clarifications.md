@@ -207,6 +207,32 @@ yet exercised with non-empty values.
 
 ---
 
+## Q13 — send_event/2's {:duplicate, sequence} vs. loan_idem's bare received_at *(FT-017, 2026-07-21)*
+
+**Resolution: extend the `loan_idem` record to carry the sequence.** Value becomes
+`{received_at, sequence}`; `Idempotency.check_and_record/3` returns `{:duplicate, sequence}`
+(the ORIGINAL sequence) instead of bare `:duplicate`. `data-model.md`'s Mnesia schema line
+updated to match.
+
+**Rationale.** `contracts/loan-actor-api.md` documents `send_event/2` returning
+`{:duplicate, sequence}`, but `data-model.md`'s `loan_idem` schema only stored
+`received_at` — no way to source `sequence` as specified. Two candidate fixes existed
+(extend the record; or simplify the contract to bare `:duplicate` for foundation); per
+PD-1 this was raised directly rather than guessed. Confirmed: extend the record.
+
+**Locked decisions.**
+- Two-phase reserve-then-fill: `check_and_record/3` atomically reserves the key
+  (`sequence: nil`) so the exactly-one-`:fresh`-winner guarantee (proven under raw
+  concurrency, FT-015's race test) still holds even though the sequence isn't known until
+  after the diary append. `record_sequence/4` fills it in once the caller (the Server,
+  FT-017 — a single serialized GenServer mailbox per loan) knows the real sequence.
+- Known, accepted limitation: if the diary append fails after a successful reservation,
+  the key stays reserved with `sequence: nil` forever (no rollback). Out of scope — an
+  extremely narrow failure mode neither source document addresses; not building
+  compensating-transaction logic for it.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |

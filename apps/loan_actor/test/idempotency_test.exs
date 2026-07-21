@@ -1,6 +1,8 @@
 defmodule LoanActor.IdempotencyTest do
   @moduledoc """
-  FT-015 — `LoanActor.Idempotency.check_and_record/3`.
+  FT-015 — `LoanActor.Idempotency.check_and_record/3` + `record_sequence/4`
+  (shape extended per clarifications.md Q13, discovered while building
+  FT-017: `{:duplicate, sequence}` requires the idem record to carry it).
   Taxonomy: happy / race / replay.
 
   Mnesia is a single node-wide database: this suite shares its directory
@@ -28,11 +30,19 @@ defmodule LoanActor.IdempotencyTest do
       assert :fresh = Idempotency.check_and_record(Factory.unique_loan_id(), unique_event_id(), :test)
     end
 
-    test "the same key seen again is :duplicate" do
+    test "the same key seen again is {:duplicate, sequence} with the original sequence" do
       loan_id = Factory.unique_loan_id()
       event_id = unique_event_id()
       assert :fresh = Idempotency.check_and_record(loan_id, event_id, :test)
-      assert :duplicate = Idempotency.check_and_record(loan_id, event_id, :test)
+      :ok = Idempotency.record_sequence(loan_id, event_id, :test, 7)
+      assert {:duplicate, 7} = Idempotency.check_and_record(loan_id, event_id, :test)
+    end
+
+    test "a key re-checked before record_sequence/4 reports {:duplicate, nil} (reserved, unfilled)" do
+      loan_id = Factory.unique_loan_id()
+      event_id = unique_event_id()
+      assert :fresh = Idempotency.check_and_record(loan_id, event_id, :test)
+      assert {:duplicate, nil} = Idempotency.check_and_record(loan_id, event_id, :test)
     end
 
     test "the same event_id from a DIFFERENT source is a distinct key (clarifications Q6)" do
@@ -49,6 +59,25 @@ defmodule LoanActor.IdempotencyTest do
     end
   end
 
+  describe "record_sequence/4 — error" do
+    test "raises if the key was never reserved" do
+      assert_raise MatchError, fn ->
+        Idempotency.record_sequence(Factory.unique_loan_id(), unique_event_id(), :test, 1)
+      end
+    end
+
+    test "raises if called a second time (already filled)" do
+      loan_id = Factory.unique_loan_id()
+      event_id = unique_event_id()
+      :fresh = Idempotency.check_and_record(loan_id, event_id, :test)
+      :ok = Idempotency.record_sequence(loan_id, event_id, :test, 3)
+
+      assert_raise MatchError, fn ->
+        Idempotency.record_sequence(loan_id, event_id, :test, 4)
+      end
+    end
+  end
+
   describe "check_and_record/3 — race" do
     test "10 concurrent callers racing the same key: exactly one wins :fresh" do
       loan_id = Factory.unique_loan_id()
@@ -62,21 +91,22 @@ defmodule LoanActor.IdempotencyTest do
         |> Enum.map(fn {:ok, result} -> result end)
 
       assert Enum.count(results, &(&1 == :fresh)) == 1
-      assert Enum.count(results, &(&1 == :duplicate)) == 9
+      assert Enum.count(results, &match?({:duplicate, nil}, &1)) == 9
     end
   end
 
   describe "check_and_record/3 — replay (durability across a Mnesia restart)" do
-    test "a recorded key still reports :duplicate after Mnesia stops and restarts" do
+    test "a recorded key still reports the same {:duplicate, sequence} after Mnesia stops and restarts" do
       loan_id = Factory.unique_loan_id()
       event_id = unique_event_id()
       assert :fresh = Idempotency.check_and_record(loan_id, event_id, :test)
+      :ok = Idempotency.record_sequence(loan_id, event_id, :test, 12)
 
       :stopped = :mnesia.stop()
       :ok = :mnesia.start()
       :ok = :mnesia.wait_for_tables([:loan_idem], 10_000)
 
-      assert :duplicate = Idempotency.check_and_record(loan_id, event_id, :test)
+      assert {:duplicate, 12} = Idempotency.check_and_record(loan_id, event_id, :test)
     end
   end
 end
