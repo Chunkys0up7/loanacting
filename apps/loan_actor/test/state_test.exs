@@ -87,4 +87,57 @@ defmodule LoanActor.StateTest do
       assert_raise ArgumentError, fn -> State.new(attrs) end
     end
   end
+
+  describe "add_goal/2 — happy (added in support of FT-018)" do
+    test "prepends the goal to an empty goals list" do
+      state = Factory.state()
+      goal = Factory.goal()
+      new_state = State.add_goal(state, goal)
+      assert new_state.goals == [goal]
+    end
+
+    test "does not change status or version" do
+      state = Factory.state(%{version: 3, status: :awaiting_documents})
+      new_state = State.add_goal(state, Factory.goal())
+      assert new_state.status == :awaiting_documents
+      assert new_state.version == 3
+    end
+
+    test "appends alongside existing goals without disturbing them" do
+      existing = Factory.goal()
+      state = Factory.state(%{goals: [existing]})
+      added = Factory.goal()
+      new_state = State.add_goal(state, added)
+      assert new_state.goals == [added, existing]
+    end
+  end
+
+  describe "satisfy_goal/2 — happy + boundary (added in support of FT-018)" do
+    test "marks the matching goal :satisfied, leaves others untouched" do
+      g1 = Factory.goal(%{goal_id: "G-1"})
+      g2 = Factory.goal(%{goal_id: "G-2"})
+      state = Factory.state(%{goals: [g1, g2]})
+
+      new_state = State.satisfy_goal(state, "G-1")
+      assert Enum.find(new_state.goals, &(&1.goal_id == "G-1")).status == :satisfied
+      assert Enum.find(new_state.goals, &(&1.goal_id == "G-2")).status == :open
+    end
+
+    test "a goal_id with no match is a no-op (defensive fallback)" do
+      state = Factory.state(%{goals: [Factory.goal(%{goal_id: "G-1"})]})
+      new_state = State.satisfy_goal(state, "G-nonexistent")
+      assert new_state == state
+    end
+  end
+
+  describe "record_heartbeat/2 — happy (added in support of FT-018)" do
+    test "sets last_heartbeat_at, leaves everything else untouched" do
+      state = Factory.state(%{version: 2, status: :spawned})
+      ts = ~U[2026-07-21 12:00:00Z]
+      new_state = State.record_heartbeat(state, ts)
+      assert new_state.last_heartbeat_at == ts
+      assert new_state.version == 2
+      assert new_state.status == :spawned
+    end
+  end
 end

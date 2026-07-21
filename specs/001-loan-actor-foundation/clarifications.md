@@ -233,6 +233,34 @@ PD-1 this was raised directly rather than guessed. Confirmed: extend the record.
 
 ---
 
+## Q14 — Where do a skill-triggered tool's arguments come from? *(FT-018, 2026-07-21)*
+
+**Resolution: the skill's own `description` becomes the tool's args.** When a matched skill
+names `set_goal` in `tools_required`, the periodic loop invokes it with
+`{"description" => skill.description}`. `verify_diary_chain` (no required args) runs
+unconditionally every heartbeat as a housekeeping self-check, independent of skill matching.
+
+**Rationale.** `contracts/skill-format.md` specifies that a skill *names* required tools
+(`tools_required: [String.t]`) but nowhere specifies how a skill supplies a named tool's
+actual arguments — a whole missing mechanism, not a small gap. Raised directly (PD-1).
+Confirmed: reuse the skill's own trigger text rather than inventing a new per-tool argument
+binding scheme. No new mechanism was added; `description` already exists on every skill.
+
+**Locked decisions.**
+- `verify_diary_chain` is NOT skill-gated — it is a periodic loop self-check that fires
+  every heartbeat regardless of which (if any) skill matches.
+- Diary discipline for periodic tool invocations (constitution Principle VIII): every
+  invocation appends `:tool_invoked` then `:tool_completed`/`:tool_failed`, payload carrying
+  the tool name, invocation id, and a **hash** of the (PII-guarded) args/result — never the
+  raw values, per `contracts/tool-behaviour.md` invariant 4.
+- `LoanActor.State` gained `add_goal/2`, `satisfy_goal/2`, `record_heartbeat/2` — mutation
+  helpers for the state surface `transition/2` deliberately does not cover (goals and
+  `last_heartbeat_at` are not part of the status state-machine graph). All three use the
+  same bare `%{state | ...}` form `transition/2` already uses, keeping every legal mutation
+  centralized in this one module.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |

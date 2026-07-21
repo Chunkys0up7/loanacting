@@ -16,6 +16,16 @@ defmodule LoanActor.State do
   Direct struct updates outside `transition/2` are a constitution violation,
   detected by the custom Credo check `LoanActor.Credo.NoDirectStateMutation`
   (FT-012).
+
+  `add_goal/2`, `satisfy_goal/2`, and `record_heartbeat/2` (added in
+  support of FT-018) cover the mutation surface `transition/2` deliberately
+  does not: goals and `last_heartbeat_at` are not part of the status
+  state-machine graph, so nothing about them belongs in `transition/2` —
+  but they still must not be mutated ad hoc outside this module, so they
+  live here as their own named functions, using the same bare `%{state |
+  ...}` form `transition/2` uses (not the struct-named form the Credo
+  check watches for — deliberately consistent, not a loophole: this
+  module IS the sanctioned place for all of it).
   """
 
   alias LoanActor.Goal
@@ -96,6 +106,39 @@ defmodule LoanActor.State do
       :error ->
         raise LoanActor.IllegalTransitionError, from: status, event_type: event_type
     end
+  end
+
+  @doc """
+  Append `goal` to `state.goals`. Does not touch `status`/`version` — per
+  the field's own documentation, `version` increments only on
+  `transition/2`-driven status changes.
+  """
+  @spec add_goal(t(), Goal.t()) :: t()
+  def add_goal(%__MODULE__{} = state, %Goal{} = goal) do
+    %{state | goals: [goal | state.goals]}
+  end
+
+  @doc """
+  Mark the goal with `goal_id` `:satisfied`. A no-op if no such goal
+  exists — callers (the `satisfy_goal` tool) are expected to have already
+  confirmed existence via a pure read of the same `state`, so this is a
+  defensive fallback, not a normal path.
+  """
+  @spec satisfy_goal(t(), String.t()) :: t()
+  def satisfy_goal(%__MODULE__{} = state, goal_id) do
+    goals =
+      Enum.map(state.goals, fn
+        %Goal{goal_id: ^goal_id} = goal -> %{goal | status: :satisfied}
+        other -> other
+      end)
+
+    %{state | goals: goals}
+  end
+
+  @doc "Record that the periodic loop fired at `timestamp` (FT-018)."
+  @spec record_heartbeat(t(), DateTime.t()) :: t()
+  def record_heartbeat(%__MODULE__{} = state, %DateTime{} = timestamp) do
+    %{state | last_heartbeat_at: timestamp}
   end
 
   defp validate_loan_id(v) when is_binary(v) and byte_size(v) > 0, do: v
