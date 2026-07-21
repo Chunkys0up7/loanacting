@@ -30,6 +30,7 @@ defmodule LoanActor.Factory do
 
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
+  alias LoanActor.Tool.Context, as: ToolContext
   alias LoanActor.Tool.Spec, as: ToolSpec
 
   @default_timestamp ~U[2026-07-21 00:00:00Z]
@@ -244,6 +245,23 @@ defmodule LoanActor.Factory do
       {:nested_missing_required, valid_tool_args(:minimal) |> Map.put("meta", %{}), ["meta", "note"]},
       {:nested_wrong_type, valid_tool_args(:minimal) |> Map.put("meta", %{"note" => 1}), ["meta", "note"]}
     ]
+  end
+
+  @doc """
+  Valid `%Tool.Context{}` for tool tests: planning loop, unique loan and
+  invocation ids, empty state (State struct lands in FT-010).
+  """
+  @spec tool_context(map() | keyword()) :: ToolContext.t()
+  def tool_context(overrides \\ %{}) do
+    %{
+      loan_id: unique_loan_id(),
+      state: %{},
+      loop: :planning,
+      actor: "system",
+      invocation_id: "inv-#{System.unique_integer([:positive, :monotonic])}"
+    }
+    |> Map.merge(Map.new(overrides))
+    |> ToolContext.new()
   end
 
   @doc """
