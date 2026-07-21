@@ -1,8 +1,8 @@
 # Clarifications — Loan-Actor Foundation
 
 **Spec**: [`spec.md`](spec.md) · **Intent**: [`intents/0001-foundation-loan-as-actor.md`](../../intents/0001-foundation-loan-as-actor.md)
-**Resolves**: Q1–Q7 listed in spec.md and intent 0001; Q8–Q11 from amendment intent 0004 (2026-07-21).
-**Date**: 2026-05-26 (Q1–Q7) · 2026-07-21 (Q8–Q11)
+**Resolves**: Q1–Q7 listed in spec.md and intent 0001; Q8–Q11 from amendment intent 0004; Q12 from FT-014 implementation.
+**Date**: 2026-05-26 (Q1–Q7) · 2026-07-21 (Q8–Q12)
 
 Each resolution below is now binding for `/speckit-plan` and downstream. Reopening a resolved question requires an amendment intent.
 
@@ -176,6 +176,34 @@ over-matching at foundation scale (one demo pack) is accepted.
 pair), blur `NoDirectStateMutation` semantics, and add ceremony to the hottest path
 (NFR-001). The glass-box value of ToolCall streaming is in what the loan chooses to do, not
 in what happens to it.
+
+---
+
+## Q12 — PIIGuard.apply/1: hard gate or redact-and-continue? *(FT-014, 2026-07-21)*
+
+**Resolution: Hard gate.** Any value anywhere in the payload matching a configured PII
+pattern → `{:error, :pii_violation, paths}`, the whole event rejected. No match →
+`{:ok, payload, []}`. `redacted_paths` is always `[]` in foundation.
+
+**Rationale.** `tasks.md` FT-014 documents `apply/1` returning one of two distinct shapes
+(`{:ok, stripped_payload, redacted_paths}` or `{:error, :pii_violation, paths}`) without
+stating what distinguishes them; `data-model.md`'s narrative ("reject... replace flagged
+values with `<redacted>`...") reads ambiguously between the two. Per PD-1 (no invention —
+stop and resolve rather than guess), this was raised to the operator directly rather than
+silently decided. Confirmed: hard gate is simplest, safest, and consistent with
+data-model.md's closing note that vault-backed redact-and-substitute is a **future** intent
+— foundation's `PIIGuard` only gates; `redacted_paths` is a forward-compatible field, not
+yet exercised with non-empty values.
+
+**Locked decisions.**
+- `priv/pii_patterns.yml` holds four value-pattern categories (ssn, account_number,
+  routing_number, date_of_birth) in a restricted hand-parsed grammar — **not** general YAML
+  (no yaml dependency is declared in any intent's Dependencies section; adding one would be
+  an undeclared-dependency anti-vibe violation, so a minimal reader was written instead,
+  mirroring the skill-format front-matter cap).
+- `paths` in the `:error` tuple are root-relative key-paths (string map keys and/or list
+  indices) to every offending value, collected across the whole payload (not short-circuited
+  on first match).
 
 ---
 

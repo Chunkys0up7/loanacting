@@ -427,6 +427,63 @@ defmodule LoanActor.Factory do
     ]
   end
 
+  # ---- PII corpus generators (FT-014) ----
+  #
+  # Discovery checklist: schema source of truth is priv/pii_patterns.yml's
+  # four categories (ssn, account_number, routing_number, date_of_birth).
+  # Scenario classes: happy/clean (letters + spaces only -- provably cannot
+  # match any digit/date-shaped pattern), adversarial/dirty (one generator
+  # per category, each guaranteed to match). Feeds the 200-run synthetic
+  # corpus property test (test-data-forge: a generative corpus, not 200
+  # hand-rolled fixtures).
+
+  @doc "A string value guaranteed to never match any configured PII pattern (letters + spaces only)."
+  @spec pii_clean_value_gen() :: StreamData.t(String.t())
+  def pii_clean_value_gen do
+    StreamData.string(?a..?z, min_length: 1, max_length: 8)
+    |> StreamData.list_of(min_length: 1, max_length: 4)
+    |> StreamData.map(&Enum.join(&1, " "))
+  end
+
+  @doc "A string value guaranteed to match one of the four configured PII pattern categories."
+  @spec pii_dirty_value_gen() :: StreamData.t(String.t())
+  def pii_dirty_value_gen do
+    StreamData.one_of([
+      pii_ssn_gen(),
+      pii_account_number_gen(),
+      pii_routing_number_gen(),
+      pii_date_of_birth_gen()
+    ])
+  end
+
+  defp pii_digits(n), do: StreamData.string(?0..?9, length: n)
+
+  defp pii_ssn_gen do
+    StreamData.tuple({pii_digits(3), pii_digits(2), pii_digits(4)})
+    |> StreamData.map(fn {a, b, c} -> "SSN: #{a}-#{b}-#{c}" end)
+  end
+
+  defp pii_account_number_gen do
+    StreamData.integer(8..17)
+    |> StreamData.bind(&pii_digits/1)
+    |> StreamData.map(fn digits -> "account #{digits} on file" end)
+  end
+
+  defp pii_routing_number_gen do
+    pii_digits(9) |> StreamData.map(fn digits -> "routing #{digits}" end)
+  end
+
+  defp pii_date_of_birth_gen do
+    StreamData.tuple({
+      StreamData.integer(1900..2019),
+      StreamData.integer(1..12),
+      StreamData.integer(1..28)
+    })
+    |> StreamData.map(fn {y, m, d} -> "born #{y}-#{pii_pad(m)}-#{pii_pad(d)}" end)
+  end
+
+  defp pii_pad(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
+
   # ---- StreamData generators (opt-in randomness for property tests) ----
 
   @doc "Generator for diary entry types drawn from the data-model enum."

@@ -1,0 +1,25 @@
+# PII value patterns (FT-014). Restricted grammar parsed by
+# LoanActor.PIIGuard -- NOT a general YAML parser (no yaml dependency is
+# declared in intent 0001's or 0004's Dependencies sections; adding one
+# would be an undeclared-dependency anti-vibe violation). Grammar:
+#
+#   - name: <bare identifier, no spaces>
+#   regex: "<literal regex source -- no escape processing>"
+#
+# repeated per pattern. Blank lines and full-line `#` comments are ignored.
+# Extending the grammar requires an amendment intent.
+#
+# Any value anywhere in a payload matching ANY pattern below causes
+# PIIGuard.apply/1 to reject the whole payload (hard gate; foundation does
+# not redact-and-continue -- see the moduledoc in pii_guard.ex).
+
+- name: ssn
+regex: "\b\d{3}-\d{2}-\d{4}\b"
+- name: account_number
+regex: "\b\d{8,17}\b"
+- name: routing_number
+regex: "\b\d{9}\b"
+- name: date_of_birth_iso
+regex: "\b(19\d{2}|20[01]\d)-\d{2}-\d{2}\b"
+- name: date_of_birth_us
+regex: "\b\d{1,2}/\d{1,2}/(19\d{2}|20[01]\d)\b"
