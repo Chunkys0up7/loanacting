@@ -30,6 +30,7 @@ defmodule LoanActor.Factory do
 
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
+  alias LoanActor.Tool.Spec, as: ToolSpec
 
   @default_timestamp ~U[2026-07-21 00:00:00Z]
 
@@ -167,6 +168,98 @@ defmodule LoanActor.Factory do
       {:payload_hash_not_binary, entry_attrs() |> Map.put(:payload_hash, :hash)},
       {:prev_hash_short, entry_attrs() |> Map.put(:prev_hash, <<0::size(16)-unit(8)>>)},
       {:payload_ref_not_binary, entry_attrs() |> Map.put(:payload_ref, 123)}
+    ]
+  end
+
+  # ---- Tool factories (FT-041; extended by FT-037) ----
+  #
+  # Discovery checklist: schema source of truth is contracts/tool-behaviour.md
+  # (JSON-schema SUBSET: type/properties/required/enum, string keys). Scenario
+  # classes: happy (tool_spec_attrs defaults + valid_tool_args), invalid
+  # (invalid_tool_args_variants — one per validator rule; invalid_tool_schema_variants
+  # — one per cap violation). Deterministic throughout; no randomness.
+
+  @doc """
+  Valid attribute map for `LoanActor.Tool.Spec.new/1`. Defaults describe a
+  demo `request_document` tool exercising every allowed schema keyword
+  (object/properties/required/enum + string/integer/boolean/array leaves).
+  """
+  @spec tool_spec_attrs(map() | keyword()) :: map()
+  def tool_spec_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        name: "request_document",
+        description: "Request a document from the operator.",
+        parameters: %{
+          "type" => "object",
+          "properties" => %{
+            "doc_type" => %{"type" => "string", "enum" => ["income", "identity", "appraisal"]},
+            "priority" => %{"type" => "integer"},
+            "blocking" => %{"type" => "boolean"},
+            "tags" => %{"type" => "array"},
+            "meta" => %{
+              "type" => "object",
+              "properties" => %{"note" => %{"type" => "string"}},
+              "required" => ["note"]
+            }
+          },
+          "required" => ["doc_type"]
+        }
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%Tool.Spec{}` from `tool_spec_attrs/1`."
+  @spec tool_spec(map() | keyword()) :: ToolSpec.t()
+  def tool_spec(overrides \\ %{}), do: ToolSpec.new(tool_spec_attrs(overrides))
+
+  @doc "Args satisfying the default `tool_spec/1` schema (minimal + full variants)."
+  @spec valid_tool_args(:minimal | :full) :: map()
+  def valid_tool_args(:minimal), do: %{"doc_type" => "income"}
+
+  def valid_tool_args(:full) do
+    %{
+      "doc_type" => "identity",
+      "priority" => 2,
+      "blocking" => true,
+      "tags" => ["kyc", "urgent"],
+      "meta" => %{"note" => "second request"}
+    }
+  end
+
+  @doc """
+  Catalog of invalid args against the default `tool_spec/1` schema — one per
+  validator rule. Each element is `{label, args, expected_error_path}`.
+  """
+  @spec invalid_tool_args_variants() :: [{atom(), map(), [String.t()]}]
+  def invalid_tool_args_variants do
+    [
+      {:missing_required, %{"priority" => 1}, ["doc_type"]},
+      {:wrong_type_string, %{"doc_type" => 42}, ["doc_type"]},
+      {:not_in_enum, %{"doc_type" => "selfie"}, ["doc_type"]},
+      {:wrong_type_integer, valid_tool_args(:minimal) |> Map.put("priority", "high"), ["priority"]},
+      {:wrong_type_boolean, valid_tool_args(:minimal) |> Map.put("blocking", "yes"), ["blocking"]},
+      {:wrong_type_array, valid_tool_args(:minimal) |> Map.put("tags", "kyc"), ["tags"]},
+      {:nested_missing_required, valid_tool_args(:minimal) |> Map.put("meta", %{}), ["meta", "note"]},
+      {:nested_wrong_type, valid_tool_args(:minimal) |> Map.put("meta", %{"note" => 1}), ["meta", "note"]}
+    ]
+  end
+
+  @doc """
+  Catalog of schema maps violating the FT-041 hard cap — `Tool.Spec.new/1`
+  raises for each. `{label, parameters}`.
+  """
+  @spec invalid_tool_schema_variants() :: [{atom(), term()}]
+  def invalid_tool_schema_variants do
+    [
+      {:forbidden_keyword, %{"type" => "object", "additionalProperties" => false}},
+      {:forbidden_format, %{"type" => "string", "format" => "uuid"}},
+      {:unknown_type, %{"type" => "number"}},
+      {:bad_required, %{"type" => "object", "required" => [:doc_type]}},
+      {:empty_enum, %{"type" => "string", "enum" => []}},
+      {:nested_violation, %{"type" => "object", "properties" => %{"x" => %{"minLength" => 3}}}},
+      {:not_a_map, "string schema"}
     ]
   end
 
