@@ -30,6 +30,8 @@ defmodule LoanActor.Factory do
 
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
+  alias LoanActor.Goal
+  alias LoanActor.State
   alias LoanActor.Tool.Context, as: ToolContext
   alias LoanActor.Tool.Spec, as: ToolSpec
 
@@ -169,6 +171,95 @@ defmodule LoanActor.Factory do
       {:payload_hash_not_binary, entry_attrs() |> Map.put(:payload_hash, :hash)},
       {:prev_hash_short, entry_attrs() |> Map.put(:prev_hash, <<0::size(16)-unit(8)>>)},
       {:payload_ref_not_binary, entry_attrs() |> Map.put(:payload_ref, 123)}
+    ]
+  end
+
+  # ---- Goal + State factories (FT-010) ----
+  #
+  # Discovery checklist: schema source of truth is data-model.md `%Goal{}` /
+  # `%LoanActor.State{}` tables. Scenario classes: happy (goal_attrs/state_attrs
+  # defaults), boundary (state_at/1 exercises every status enum value; goals
+  # list empty vs populated), invalid (invalid_goal_variants /
+  # invalid_state_variants -- one per validator rule). Deterministic: no
+  # randomness; ids come from the shared unique_loan_id/monotonic-counter
+  # mechanism already used by the diary factories.
+
+  @doc "Valid attribute map for `LoanActor.Goal.new/1`."
+  @spec goal_attrs(map() | keyword()) :: map()
+  def goal_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        goal_id: "G-#{System.unique_integer([:positive, :monotonic])}",
+        description: "Obtain income documentation",
+        status: :open,
+        due_at: nil
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%Goal{}` from `goal_attrs/1`."
+  @spec goal(map() | keyword()) :: Goal.t()
+  def goal(overrides \\ %{}), do: Goal.new(goal_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `Goal.new/1` inputs, one per violated field invariant.
+  Each element is `{label, attrs}`; every `attrs` raises `ArgumentError`.
+  """
+  @spec invalid_goal_variants() :: [{atom(), map()}]
+  def invalid_goal_variants do
+    [
+      {:goal_id_empty, goal_attrs(%{goal_id: ""})},
+      {:goal_id_not_binary, goal_attrs() |> Map.put(:goal_id, 1)},
+      {:description_empty, goal_attrs(%{description: ""})},
+      {:status_invalid, goal_attrs() |> Map.put(:status, :bogus)},
+      {:due_at_not_datetime, goal_attrs() |> Map.put(:due_at, "2026-01-01")}
+    ]
+  end
+
+  @doc "Valid attribute map for `LoanActor.State.new/1` — a fresh `:spawned` loan."
+  @spec state_attrs(map() | keyword()) :: map()
+  def state_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        loan_id: unique_loan_id(),
+        status: :spawned,
+        goals: [],
+        context: %{},
+        version: 0,
+        last_heartbeat_at: nil
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.State{}` from `state_attrs/1`."
+  @spec state(map() | keyword()) :: State.t()
+  def state(overrides \\ %{}), do: State.new(state_attrs(overrides))
+
+  @doc """
+  A valid state already at `status` — used to exercise every status enum
+  value (boundary coverage, FT-010) and to build the "from" side of a
+  transition test (FT-011).
+  """
+  @spec state_at(State.status(), map() | keyword()) :: State.t()
+  def state_at(status, overrides \\ %{}) do
+    state(Map.merge(%{status: status}, Map.new(overrides)))
+  end
+
+  @doc """
+  Catalog of invalid `State.new/1` inputs, one per violated field invariant.
+  """
+  @spec invalid_state_variants() :: [{atom(), map()}]
+  def invalid_state_variants do
+    [
+      {:loan_id_empty, state_attrs(%{loan_id: ""})},
+      {:status_invalid, state_attrs() |> Map.put(:status, :bogus)},
+      {:goals_not_list, state_attrs() |> Map.put(:goals, "nope")},
+      {:goals_wrong_element, state_attrs() |> Map.put(:goals, [%{}])},
+      {:context_not_map, state_attrs() |> Map.put(:context, [])},
+      {:version_negative, state_attrs() |> Map.put(:version, -1)},
+      {:last_heartbeat_at_not_datetime, state_attrs() |> Map.put(:last_heartbeat_at, "now")}
     ]
   end
 
