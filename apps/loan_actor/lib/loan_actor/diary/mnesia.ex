@@ -30,6 +30,7 @@ defmodule LoanActor.Diary.Mnesia do
   alias LoanActor.Diary.Store
 
   @table :loan_diary
+  @idem_table :loan_idem
 
   # ---- behaviour callbacks ----
 
@@ -37,8 +38,9 @@ defmodule LoanActor.Diary.Mnesia do
   def init(opts) do
     with :ok <- ensure_dir(Keyword.get(opts, :dir)),
          :ok <- ensure_schema_and_start(),
-         :ok <- ensure_table() do
-      case :mnesia.wait_for_tables([@table], 10_000) do
+         :ok <- ensure_table(),
+         :ok <- ensure_idem_table() do
+      case :mnesia.wait_for_tables([@table, @idem_table], 10_000) do
         :ok -> :ok
         {:timeout, tabs} -> {:error, {:table_timeout, tabs}}
         {:error, reason} -> {:error, reason}
@@ -195,6 +197,21 @@ defmodule LoanActor.Diary.Mnesia do
          ) do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, @table}} -> :ok
+      {:aborted, reason} -> {:error, {:table_error, reason}}
+    end
+  end
+
+  # loan_idem — FT-015 idempotency table (data-model.md Mnesia schema):
+  # {{loan_id, event_id, source}, received_at}. Consumed by
+  # LoanActor.Idempotency.check_and_record/3.
+  defp ensure_idem_table do
+    case :mnesia.create_table(@idem_table,
+           type: :set,
+           attributes: [:key, :received_at],
+           disc_copies: [node()]
+         ) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, @idem_table}} -> :ok
       {:aborted, reason} -> {:error, {:table_error, reason}}
     end
   end

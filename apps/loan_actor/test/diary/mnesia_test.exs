@@ -12,8 +12,9 @@ defmodule LoanActor.Diary.MnesiaTest do
   use LoanActor.Diary.StoreSharedTests, store: LoanActor.Diary.Mnesia
 
   alias LoanActor.Diary.Mnesia, as: MnesiaStore
+  alias LoanActor.MnesiaTestSupport
 
-  @dir Path.join(System.tmp_dir!(), "loan_actor_diary_mnesia_test")
+  @dir MnesiaTestSupport.dir()
 
   def store_opts, do: [dir: @dir]
 
