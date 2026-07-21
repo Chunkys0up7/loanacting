@@ -30,8 +30,14 @@ specs/             Spec-kit execution specs (the WHAT/HOW)
 
 ## Discipline
 
-- **No code without specs. No specs without intent.** See CLAUDE.md §2.
-- **Tests are part of the deliverable.** See CLAUDE.md §3 and the constitution Principle V.
+The three prime directives (CLAUDE.md §0):
+
+- **PD-1 — Specs only, no vibe coding.** No code without a spec, no spec without an intent. See CLAUDE.md §3.
+- **PD-2 — Test-driven.** Tests first or same commit; taxonomic coverage; factories only. See CLAUDE.md §4 and constitution Principle V.
+- **PD-3 — Tools + skills execution.** Every self-initiated agent function is a registered tool; when-to-use knowledge is skill-pack content. See CLAUDE.md §5 and constitution Principle VIII.
+
+Also load-bearing:
+
 - **No LLM calls in foundation.** Enforced by a Credo check and a grep test.
-- **PII never enters the diary.** Enforced by `LoanActor.PIIGuard`.
+- **PII never enters the diary or the UI stream.** Enforced by `LoanActor.PIIGuard` before hashing and before emission.
 - **CopilotKit is the only UI layer.** See `.claude/skills/copilotkit/` for the playbook.
