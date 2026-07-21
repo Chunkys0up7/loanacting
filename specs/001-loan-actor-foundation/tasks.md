@@ -16,7 +16,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 |---|---|---|
 | FT-001 | DONE | `7532190` (bootstrap scaffold) |
 | FT-002 | DONE | `7532190` (bootstrap scaffold) |
-| FT-003 | DONE | this commit |
+| FT-003 | DONE | `FT-003` commit |
+| FT-004 | DONE | this commit |
 | FT-005 | DONE | `2af785a` |
 
 ---

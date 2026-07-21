@@ -1,0 +1,120 @@
+# FT-004 — CI workflow per specs/001-loan-actor-foundation/tasks.md.
+#
+# Jobs:
+#   backend  — mix test, mix credo --strict, mix dialyzer, mix test.load
+#   frontend — npm test (Vitest), Playwright e2e against a booted backend
+#
+# Steps whose subject tasks have not landed yet are guarded by hashFiles()
+# checks so CI stays green while the task graph fills in (no skipped-red,
+# no vacuous-green: once the files exist the step runs unconditionally).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  MIX_ENV: test
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up BEAM
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Cache deps + _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+      - run: mix credo --strict
+      - run: mix dialyzer
+
+      - name: Load tests (NFR budgets)
+        # FT-035 delivers test/load/nfr_load_test.exs; guard keeps CI honest until then.
+        if: hashFiles('apps/loan_actor/test/load/*_test.exs') != ''
+        run: mix test.load
+
+  frontend:
+    # Guarded until FT-029 completes the web scaffold (package-lock.json).
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('apps/web/package-lock.json') != '' }}
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      - name: Unit tests (Vitest)
+        # FT-030 delivers the first Vitest suite.
+        if: hashFiles('apps/web/test/**/*.test.ts') != ''
+        run: npm test
+
+  e2e:
+    # Playwright against a booted backend — FT-032/FT-033/FT-038 deliver the specs.
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: ${{ hashFiles('apps/web/test/e2e/*.spec.ts') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up BEAM
+        uses: erlef/setup-beam@v1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Restore mix cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-
+
+      - run: mix deps.get
+      - run: mix compile
+
+      - name: Boot backend
+        run: mix run --no-halt &
+        env:
+          MIX_ENV: dev
+
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run e2e
+        working-directory: apps/web
