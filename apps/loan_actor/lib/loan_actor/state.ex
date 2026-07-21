@@ -1,18 +1,25 @@
 defmodule LoanActor.State do
   @moduledoc """
-  In-memory loan state (FT-010). Held by `LoanActor.Server`; persisted only
-  via diary replay (constitution Principle IV) — never directly stored.
+  In-memory loan state (FT-010) + the single mutation gate `transition/2`
+  (FT-011). Held by `LoanActor.Server`; persisted only via diary replay
+  (constitution Principle IV) — never directly stored.
 
   Fields per `specs/001-loan-actor-foundation/data-model.md` `%LoanActor.State{}`.
 
-  The single legal mutation entrypoint, `transition/2`, is added by FT-011
-  (`LoanActor.State.Model` supplies the state-machine graph it enforces).
-  Direct struct updates outside that function are a constitution violation,
+  `transition/2` is pure — no I/O, no diary append. Per clarifications Q4,
+  the invariant "every mutation is paired with a diary append" is enforced
+  by the Server (FT-017): it calls `transition/2`, and on success appends the
+  diary entry in the same atomic step; on `LoanActor.IllegalTransitionError`
+  it appends the documented `:illegal_transition_attempted` entry instead.
+  That pairing is a Server concern, not this module's.
+
+  Direct struct updates outside `transition/2` are a constitution violation,
   detected by the custom Credo check `LoanActor.Credo.NoDirectStateMutation`
   (FT-012).
   """
 
   alias LoanActor.Goal
+  alias LoanActor.State.Model
 
   @statuses [
     :spawned,
@@ -68,6 +75,27 @@ defmodule LoanActor.State do
     }
 
     struct!(__MODULE__, fields)
+  end
+
+  @doc """
+  Advance `state` by `event_type`, per the graph in `LoanActor.State.Model`.
+
+  Returns the new state on a legal edge: `status` updated, `version`
+  incremented by 1. `goals`/`context`/`last_heartbeat_at` are unchanged here
+  — those are mutated by other means introduced in later tasks (tools).
+
+  Raises `LoanActor.IllegalTransitionError` (carrying `from` and
+  `event_type`) if `{state.status, event_type}` has no edge.
+  """
+  @spec transition(t(), Model.event_type()) :: t()
+  def transition(%__MODULE__{status: status} = state, event_type) do
+    case Model.next_status(status, event_type) do
+      {:ok, next_status} ->
+        %{state | status: next_status, version: state.version + 1}
+
+      :error ->
+        raise LoanActor.IllegalTransitionError, from: status, event_type: event_type
+    end
   end
 
   defp validate_loan_id(v) when is_binary(v) and byte_size(v) > 0, do: v

@@ -25,7 +25,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-018b | SUPERSEDED | by FT-044 (intent 0004) |
 | FT-041 | DONE | `FT-041` commit |
 | FT-042 | DONE | `FT-042` commit |
-| FT-010 | DONE | this commit |
+| FT-010 | DONE | `FT-010` commit |
+| FT-011 | DONE | this commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 
