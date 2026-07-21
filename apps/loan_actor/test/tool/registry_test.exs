@@ -147,5 +147,17 @@ defmodule LoanActor.Tool.RegistryTest do
       assert {:ok, %{"ssn" => "<redacted>"}} =
                Registry.redacted_args("echo_note", %{"text" => "x", "ssn" => "123-45-6789"})
     end
+
+    test "a hard-gate rejection from the guard rejects the WHOLE invocation, not just the flagged value" do
+      assert {:error, {:pii_violation, [["reject_me"]]}} =
+               Registry.invoke(
+                 "echo_note",
+                 %{"text" => "x", "reject_me" => "anything"},
+                 Factory.tool_context()
+               )
+
+      assert {:error, {:pii_violation, [["reject_me"]]}} =
+               Registry.redacted_args("echo_note", %{"text" => "x", "reject_me" => "anything"})
+    end
   end
 end

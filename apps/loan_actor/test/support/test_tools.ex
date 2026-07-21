@@ -122,18 +122,26 @@ defmodule LoanActor.TestTools do
 
   defmodule RedactingGuard do
     @moduledoc """
-    Fixture PII guard proving order-of-operations: replaces the value of any
-    `"ssn"` key and rewrites `"text"` so tests can observe that the tool
-    received the REDACTED form.
+    Fixture PII guard matching `LoanActor.PIIGuard.apply/1`'s real shape
+    exactly (`{:ok, guarded, paths} | {:error, :pii_violation, paths}`) —
+    proves order-of-operations without exercising the real regex patterns.
+    Replaces `"ssn"`, rewrites `"text"`, and hard-rejects any `"reject_me"`
+    key (to exercise the registry's hard-gate branch).
     """
 
     def redact(args) when is_map(args) do
-      args
-      |> Map.new(fn
-        {"ssn", _v} -> {"ssn", "<redacted>"}
-        {"text", v} when is_binary(v) -> {"text", "[guarded]" <> v}
-        pair -> pair
-      end)
+      if Map.has_key?(args, "reject_me") do
+        {:error, :pii_violation, [["reject_me"]]}
+      else
+        guarded =
+          Map.new(args, fn
+            {"ssn", _v} -> {"ssn", "<redacted>"}
+            {"text", v} when is_binary(v) -> {"text", "[guarded]" <> v}
+            pair -> pair
+          end)
+
+        {:ok, guarded, []}
+      end
     end
   end
 

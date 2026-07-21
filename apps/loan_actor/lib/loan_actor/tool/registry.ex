@@ -13,10 +13,15 @@ defmodule LoanActor.Tool.Registry do
     exact form the tool received.
 
   **PII order of operations** (contract invariant 3): args pass the configured
-  guard BEFORE validation and execution — tools only ever see the redacted
-  form, and the redacted form is what gets hashed and streamed. The guard is
-  `config :loan_actor, :tool_pii_guard, {module, function}`; unset means
-  identity until `LoanActor.PIIGuard` lands (FT-014 wires it).
+  guard BEFORE validation and execution — tools only ever see the guarded
+  form. The guard is `config :loan_actor, :tool_pii_guard, {module, function}`,
+  a function of one arg (`args`) matching `LoanActor.PIIGuard.apply/1`'s
+  shape EXACTLY: `{:ok, guarded_args, redacted_paths} | {:error,
+  :pii_violation, paths}` — `LoanActor.PIIGuard` (FT-014) is a HARD GATE
+  (clarifications.md Q12: any match rejects the whole payload, never
+  redact-and-continue), so a PII match in tool args rejects the WHOLE
+  invocation as `{:error, {:pii_violation, paths}}`, not a silently-cleaned
+  args map. Unset guard means identity (`{:ok, args, []}`).
 
   **Zero routing logic** (contract invariant 6): this module knows WHICH tools
   exist, never WHEN to use them — that is skill content (Principle VI/VIII).
@@ -43,11 +48,19 @@ defmodule LoanActor.Tool.Registry do
   The PII-guarded form of `args` for the named tool — the exact map the tool
   would receive from `invoke/3`. Used by the Server for diary hashing and
   `ToolCallArgs` emission.
+
+  Returns `{:ok, guarded_args}`, `{:error, :unknown_tool}`, or
+  `{:error, {:pii_violation, paths}}` if `args` itself contains PII (the
+  hard gate rejects before any hashing/emission would occur).
   """
-  @spec redacted_args(String.t(), map()) :: {:ok, map()} | {:error, :unknown_tool}
+  @spec redacted_args(String.t(), map()) ::
+          {:ok, map()} | {:error, :unknown_tool} | {:error, {:pii_violation, [term()]}}
   def redacted_args(name, args) do
     with {:ok, _module} <- fetch(name) do
-      {:ok, apply_guard(args)}
+      case apply_guard(args) do
+        {:ok, guarded, _paths} -> {:ok, guarded}
+        {:error, :pii_violation, paths} -> {:error, {:pii_violation, paths}}
+      end
     end
   end
 
@@ -56,17 +69,22 @@ defmodule LoanActor.Tool.Registry do
 
   Returns the tool's own result (`{:ok, effects} | {:pending, id} |
   {:error, reason}`), or `{:error, :unknown_tool}`,
-  `{:error, {:invalid_args, details}}`, `{:error, {:exception, kind, reason}}`
-  for a crashing tool, or `{:error, {:bad_return, term}}` for a tool violating
-  the behaviour's return contract.
+  `{:error, {:pii_violation, paths}}` (args rejected by the hard gate before
+  the tool ever ran), `{:error, {:invalid_args, details}}`,
+  `{:error, {:exception, kind, reason}}` for a crashing tool, or
+  `{:error, {:bad_return, term}}` for a tool violating the behaviour's
+  return contract.
   """
   @spec invoke(String.t(), map(), Context.t()) ::
           {:ok, map()} | {:pending, String.t()} | {:error, term()}
   def invoke(name, args, %Context{} = ctx) do
     with {:ok, module} <- fetch(name),
-         redacted = apply_guard(args),
-         :ok <- Spec.validate_args(module.spec(), redacted) do
-      execute_measured(module, name, redacted, ctx)
+         {:ok, guarded, _paths} <- apply_guard(args),
+         :ok <- Spec.validate_args(module.spec(), guarded) do
+      execute_measured(module, name, guarded, ctx)
+    else
+      {:error, :pii_violation, paths} -> {:error, {:pii_violation, paths}}
+      {:error, other} -> {:error, other}
     end
   end
 
@@ -96,7 +114,7 @@ defmodule LoanActor.Tool.Registry do
 
   defp apply_guard(args) do
     case Application.get_env(:loan_actor, :tool_pii_guard) do
-      nil -> args
+      nil -> {:ok, args, []}
       {module, function} -> apply(module, function, [args])
     end
   end
