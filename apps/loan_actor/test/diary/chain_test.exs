@@ -3,6 +3,7 @@ defmodule LoanActor.Diary.ChainTest do
 
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
+  alias LoanActor.Factory
 
   @loan "L-001"
   @ts ~U[2026-05-26 12:00:00Z]
@@ -11,26 +12,8 @@ defmodule LoanActor.Diary.ChainTest do
     Chain.hash(<<seed::32>>)
   end
 
-  defp build_chain(n) do
-    Enum.reduce(0..(n - 1), {[], Entry.genesis_prev_hash()}, fn i, {acc, prev_hash} ->
-      payload = payload_hash(i)
-
-      entry =
-        Entry.new(%{
-          loan_id: @loan,
-          sequence: i,
-          timestamp: @ts,
-          type: :spawned,
-          actor: "system",
-          payload_hash: payload,
-          prev_hash: prev_hash
-        })
-
-      {[entry | acc], Chain.next_prev_hash(entry)}
-    end)
-    |> elem(0)
-    |> Enum.reverse()
-  end
+  # Chain construction is owned by the shared factory (test-data-forge, FT-006).
+  defp build_chain(n), do: Factory.chain(n, %{loan_id: @loan})
 
   describe "hash/1 — happy" do
     test "produces a 32-byte digest" do
@@ -145,6 +128,49 @@ defmodule LoanActor.Diary.ChainTest do
         })
 
       assert {:error, {:tamper, 0}} = Chain.verify([bad])
+    end
+  end
+
+  describe "verify_append/2 — happy" do
+    test "accepts the genesis entry on an empty diary (nil tail)" do
+      [genesis] = build_chain(1)
+      assert :ok = Chain.verify_append(nil, genesis)
+    end
+
+    test "accepts a properly linked successor" do
+      [e0, e1] = build_chain(2)
+      assert :ok = Chain.verify_append(e0, e1)
+    end
+  end
+
+  describe "verify_append/2 — error" do
+    test "rejects a non-zero sequence on an empty diary" do
+      [_, e1] = build_chain(2)
+      assert {:error, :sequence_gap} = Chain.verify_append(nil, e1)
+    end
+
+    test "rejects a genesis entry with a non-genesis prev_hash" do
+      bad =
+        Entry.new(%{
+          loan_id: @loan,
+          sequence: 0,
+          timestamp: @ts,
+          type: :spawned,
+          actor: "system",
+          payload_hash: payload_hash(0),
+          prev_hash: <<1::256>>
+        })
+
+      assert {:error, :genesis_prev_hash_mismatch} = Chain.verify_append(nil, bad)
+    end
+
+    test "delegates linkage errors to verify_pair/2" do
+      [e0, e1] = build_chain(2)
+      tampered = %{e1 | prev_hash: <<0::256>>}
+      assert {:error, :prev_hash_mismatch} = Chain.verify_append(e0, tampered)
+
+      [f0, _, f2] = build_chain(3)
+      assert {:error, :sequence_gap} = Chain.verify_append(f0, f2)
     end
   end
 

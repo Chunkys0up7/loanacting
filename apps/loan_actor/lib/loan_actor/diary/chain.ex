@@ -103,6 +103,29 @@ defmodule LoanActor.Diary.Chain do
   end
 
   @doc """
+  Validate that `entry` is a legal append after `tail` (the store's current
+  most-recent entry, or `nil` for an empty diary).
+
+  This is the single linkage gate both `DiaryStore` implementations call from
+  inside their atomic append (FT-006, contract invariants 1 & 3):
+
+  - empty diary → `entry` must be sequence 0 carrying the genesis `prev_hash`;
+  - otherwise → `verify_pair(tail, entry)` must hold (same loan, sequence + 1,
+    `prev_hash` linkage).
+  """
+  @spec verify_append(Entry.t() | nil, Entry.t()) :: :ok | {:error, atom()}
+  def verify_append(nil, %Entry{sequence: 0, prev_hash: prev_hash}) do
+    if prev_hash == Entry.genesis_prev_hash() do
+      :ok
+    else
+      {:error, :genesis_prev_hash_mismatch}
+    end
+  end
+
+  def verify_append(nil, %Entry{}), do: {:error, :sequence_gap}
+  def verify_append(%Entry{} = tail, %Entry{} = entry), do: verify_pair(tail, entry)
+
+  @doc """
   BLAKE2b-256 digest helper. Public because diary store implementations need to
   compute `payload_hash` over canonical-JSON of a stripped payload.
   """

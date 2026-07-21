@@ -8,6 +8,21 @@ Conventions:
 - Every task lists: deliverable artifacts, applicable test-taxonomy categories, dependency tasks.
 - Tests are committed in the **same** PR as code. Tasks of type `test` are about test infrastructure or pure test suites; production tasks include their own tests.
 
+## Status ledger
+
+Updated by `/speckit-implement` as each task lands. Absent = not started.
+
+| Task | Status | Commit |
+|---|---|---|
+| FT-001 | DONE | `7532190` (bootstrap scaffold) |
+| FT-002 | DONE | `7532190` (bootstrap scaffold) |
+| FT-003 | DONE | `FT-003` commit |
+| FT-004 | DONE | `FT-004` commit |
+| FT-005 | DONE | `2af785a` |
+| FT-006 | DONE | `FT-006` commit (incl. factory seed of FT-037 + shared store suite) |
+| FT-007 | DONE | `FT-007` commit |
+| FT-008 | DONE | this commit |
+
 ---
 
 ## Track 1 — Foundation skeleton

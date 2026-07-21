@@ -11,7 +11,7 @@ defmodule LoanAsActor.MixProject do
       deps: deps(),
       aliases: aliases(),
       dialyzer: [
-        plt_add_apps: [:mnesia, :ex_unit],
+        plt_add_apps: [:mnesia, :ex_unit, :mix],
         flags: [:error_handling, :unknown, :unmatched_returns, :no_opaque]
       ]
     ]
