@@ -110,6 +110,7 @@ defmodule LoanActor.Server do
     {:ok, gen_state}
   end
 
+  # loop: reactive
   @impl GenServer
   def handle_call({:send_event, %Event{} = event}, _from, gen_state) do
     case Event.validate(event) do
@@ -118,9 +119,11 @@ defmodule LoanActor.Server do
     end
   end
 
+  # loop: reactive
   @impl GenServer
   def handle_call(:state, _from, gen_state), do: {:reply, gen_state.state, gen_state}
 
+  # loop: periodic
   @impl GenServer
   def handle_info(:heartbeat, gen_state) do
     {:noreply, run_heartbeat(gen_state)}

@@ -11,9 +11,11 @@ defmodule LoanActor.ServerReactiveTest do
   alias LoanActor.Diary.File, as: FileStore
   alias LoanActor.Diary.Mnesia, as: MnesiaStore
   alias LoanActor.Factory
+  alias LoanActor.FileTestSupport
   alias LoanActor.MnesiaTestSupport
+  alias LoanActor.ServerTestSupport
 
-  @dir Path.join(System.tmp_dir!(), "loan_actor_server_reactive_test")
+  @dir FileTestSupport.dir()
 
   setup_all do
     :ok = FileStore.init(dir: @dir)
@@ -41,7 +43,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "LoanActor.spawn/1 — happy" do
     test "spawns a supervised actor with a genesis diary entry" do
       loan_id = Factory.unique_loan_id()
-      assert {:ok, pid} = LoanActor.spawn(loan_id)
+      assert {:ok, pid} = ServerTestSupport.spawn_and_track(loan_id)
       assert Process.alive?(pid)
 
       assert {:ok, state} = LoanActor.state(loan_id)
@@ -54,8 +56,8 @@ defmodule LoanActor.ServerReactiveTest do
 
     test "spawning the same loan_id twice is idempotent" do
       loan_id = Factory.unique_loan_id()
-      assert {:ok, pid1} = LoanActor.spawn(loan_id)
-      assert {:ok, pid2} = LoanActor.spawn(loan_id)
+      assert {:ok, pid1} = ServerTestSupport.spawn_and_track(loan_id)
+      assert {:ok, pid2} = ServerTestSupport.spawn_and_track(loan_id)
       assert pid1 == pid2
     end
   end
@@ -70,7 +72,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "send_event — error (validate step, in isolation)" do
     test "an invalid event is rejected before touching PIIGuard/idempotency/diary" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       assert {:error, :invalid_event} = LoanActor.send_event(loan_id, %LoanActor.Event{})
       assert length(entries(loan_id)) == 1
@@ -80,7 +82,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "send_event — error (PIIGuard step, in isolation)" do
     test "a PII-shaped payload is rejected before touching idempotency/diary" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       event = Factory.event(%{type: :goal_set, payload: %{"ssn" => "123-45-6789"}})
       assert {:error, {:pii_violation, [["ssn"]]}} = LoanActor.send_event(loan_id, event)
@@ -91,7 +93,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "send_event — happy (transition + diary append)" do
     test "a legal event transitions state and appends a diary entry" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       event = Factory.event(%{type: :goal_set, payload: %{"note" => "income doc needed"}})
       assert {:ok, 1} = LoanActor.send_event(loan_id, event)
@@ -107,7 +109,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "send_event — error (idempotency step, in isolation)" do
     test "re-delivering the SAME event_id reports {:duplicate, original_sequence}, no second diary entry" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       event = Factory.event(%{type: :goal_set})
       assert {:ok, 1} = LoanActor.send_event(loan_id, event)
@@ -121,7 +123,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "send_event — error (illegal transition)" do
     test "an event with no legal edge from the current status is rejected and diary-logged" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       # :spawned has no :complete edge (LoanActor.State.Model)
       event = Factory.event(%{type: :complete})
@@ -136,7 +138,7 @@ defmodule LoanActor.ServerReactiveTest do
 
     test "re-delivering the SAME event_id after an illegal transition also reports the recorded sequence" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
       event = Factory.event(%{type: :complete})
 
       assert {:error, {:illegal_transition, :spawned, :complete}} = LoanActor.send_event(loan_id, event)
@@ -148,7 +150,7 @@ defmodule LoanActor.ServerReactiveTest do
   describe "integration — full pipeline + crash-recovery rehydration" do
     test "several events land in sequence, then killing and respawning replays to the same state" do
       loan_id = Factory.unique_loan_id()
-      {:ok, pid} = LoanActor.spawn(loan_id)
+      {:ok, pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       assert {:ok, 1} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_set}))
       assert {:ok, 2} = LoanActor.send_event(loan_id, Factory.event(%{type: :document_uploaded}))

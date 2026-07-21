@@ -11,6 +11,7 @@ defmodule LoanActor.Skill.LoaderTest do
 
   use ExUnit.Case, async: false
 
+  alias LoanActor.Factory
   alias LoanActor.Skill
   alias LoanActor.Skill.Loader
 
@@ -85,7 +86,7 @@ defmodule LoanActor.Skill.LoaderTest do
     end
 
     test "an empty directory yields zero skills" do
-      empty_dir = Path.join(System.tmp_dir!(), "loan_actor_skills_empty_#{System.unique_integer([:positive])}")
+      empty_dir = Factory.unique_tmp_dir("loan_actor_skills_empty")
       File.mkdir_p!(empty_dir)
       assert {:ok, []} = Loader.load_all(dir: empty_dir)
     end
@@ -93,7 +94,7 @@ defmodule LoanActor.Skill.LoaderTest do
 
   describe "reload/0 — happy (analysis Gap-1 inherited: picks up an added pack)" do
     test "adding a pack after the first load_all is visible on the next call" do
-      tmp_dir = Path.join(System.tmp_dir!(), "loan_actor_skills_reload_#{System.unique_integer([:positive])}")
+      tmp_dir = Factory.unique_tmp_dir("loan_actor_skills_reload")
       File.mkdir_p!(tmp_dir)
 
       assert {:ok, []} = Loader.load_all(dir: tmp_dir)

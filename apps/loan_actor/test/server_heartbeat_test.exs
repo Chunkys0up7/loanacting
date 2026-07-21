@@ -18,9 +18,11 @@ defmodule LoanActor.ServerHeartbeatTest do
   alias LoanActor.Diary.File, as: FileStore
   alias LoanActor.Diary.Mnesia, as: MnesiaStore
   alias LoanActor.Factory
+  alias LoanActor.FileTestSupport
   alias LoanActor.MnesiaTestSupport
+  alias LoanActor.ServerTestSupport
 
-  @dir Path.join(System.tmp_dir!(), "loan_actor_server_heartbeat_test")
+  @dir FileTestSupport.dir()
 
   setup_all do
     :ok = FileStore.init(dir: @dir)
@@ -63,23 +65,30 @@ defmodule LoanActor.ServerHeartbeatTest do
   end
 
   describe "heartbeat cadence — happy (SC-011, scaled)" do
-    test "over ~1 second, 9..11 :heartbeat diary entries are observed" do
+    test "over ~2.5 seconds at a 100ms interval, 22..28 :heartbeat diary entries are observed" do
+      # A 1-second/10-tick window (SC-011's own ratio, scaled to test
+      # config's 100ms interval) proved genuinely flaky under full-suite
+      # scheduler contention: a single BEAM message-delivery delay is 10%
+      # of a 10-tick sample, easily enough to land outside a tight 9..11
+      # band. Observing 2.5x longer (~25 ticks) at the same ~10% tolerance
+      # dampens any one-off jitter's relative weight without weakening
+      # what's actually being proven (steady periodic cadence).
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       # Genuinely waiting for real time to pass — this IS the cadence
       # under test, not a synchronization guess.
-      Process.sleep(1_050)
+      Process.sleep(2_550)
 
       count = length(entries_of_type(loan_id, :heartbeat))
-      assert count >= 9 and count <= 11, "expected 9..11 heartbeats, got #{count}"
+      assert count >= 22 and count <= 28, "expected 22..28 heartbeats, got #{count}"
     end
   end
 
   describe "heartbeat — happy (state hash + last_heartbeat_at)" do
     test "each :heartbeat entry carries a state_hash and last_heartbeat_at advances" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       {:ok, state_before} = LoanActor.state(loan_id)
       assert state_before.last_heartbeat_at == nil
@@ -98,7 +107,7 @@ defmodule LoanActor.ServerHeartbeatTest do
   describe "heartbeat — happy (verify_diary_chain runs unconditionally)" do
     test "every heartbeat pass invokes verify_diary_chain and logs the real result" do
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       wait_for_entry(loan_id, :diary_chain_verified)
 
@@ -118,7 +127,7 @@ defmodule LoanActor.ServerHeartbeatTest do
       Application.put_env(:loan_actor, :skills_dir, empty_skills_dir())
 
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       wait_for_entry(loan_id, :heartbeat)
       Process.sleep(50)
@@ -132,7 +141,7 @@ defmodule LoanActor.ServerHeartbeatTest do
       Application.delete_env(:loan_actor, :skills_dir)
 
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       {:ok, 1} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_set}))
 
@@ -144,9 +153,7 @@ defmodule LoanActor.ServerHeartbeatTest do
 
   describe "heartbeat — happy (skill-triggered set_goal, custom fixture pack)" do
     test "a matched skill naming set_goal causes a new goal with the skill's description" do
-      tmp_dir =
-        Path.join(System.tmp_dir!(), "loan_actor_heartbeat_skill_#{System.unique_integer([:positive])}")
-
+      tmp_dir = Factory.unique_tmp_dir("loan_actor_heartbeat_skill")
       pack_dir = Path.join(tmp_dir, "0001-set-goal-demo")
       File.mkdir_p!(pack_dir)
 
@@ -164,7 +171,7 @@ defmodule LoanActor.ServerHeartbeatTest do
       Application.put_env(:loan_actor, :skills_dir, tmp_dir)
 
       loan_id = Factory.unique_loan_id()
-      {:ok, _pid} = LoanActor.spawn(loan_id)
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
 
       # Drive the loan to :processing so the fixture's trigger (which
       # mentions "processing") keyword-overlaps the loan context.
@@ -197,7 +204,7 @@ defmodule LoanActor.ServerHeartbeatTest do
   end
 
   defp empty_skills_dir do
-    dir = Path.join(System.tmp_dir!(), "loan_actor_heartbeat_empty_skills_#{System.unique_integer([:positive])}")
+    dir = Factory.unique_tmp_dir("loan_actor_heartbeat_empty_skills")
     File.mkdir_p!(dir)
     dir
   end

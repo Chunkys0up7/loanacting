@@ -54,6 +54,22 @@ defmodule LoanActor.Factory do
     "L-#{run_token()}-#{System.unique_integer([:positive, :monotonic])}"
   end
 
+  @doc """
+  A path under `System.tmp_dir!/0` unique WITHIN and ACROSS test runs —
+  same run-token rationale as `unique_loan_id/0`, generalized: any test
+  writing to the real filesystem (not a store this project tracks its own
+  dir for) needs this, or a stale directory from an earlier `mix test`
+  invocation can collide with a "fresh" one (`System.tmp_dir!()` is never
+  cleaned between runs; a bare `System.unique_integer/1` resets to low
+  numbers every fresh BEAM VM and can reproduce an earlier run's exact
+  name). Found the hard way: `test/skill/loader_test.exs`'s reload test
+  flaked intermittently before switching to this helper.
+  """
+  @spec unique_tmp_dir(String.t()) :: String.t()
+  def unique_tmp_dir(prefix) do
+    Path.join(System.tmp_dir!(), "#{prefix}_#{run_token()}_#{System.unique_integer([:positive, :monotonic])}")
+  end
+
   defp run_token do
     key = {__MODULE__, :run_token}
 

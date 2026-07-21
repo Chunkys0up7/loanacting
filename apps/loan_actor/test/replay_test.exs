@@ -22,11 +22,12 @@ defmodule LoanActor.ReplayTest do
   alias LoanActor.Diary.File, as: FileStore
   alias LoanActor.Diary.Mnesia, as: MnesiaStore
   alias LoanActor.Factory
+  alias LoanActor.FileTestSupport
   alias LoanActor.MnesiaTestSupport
   alias LoanActor.State
   alias LoanActor.State.Model
 
-  @file_dir Path.join(System.tmp_dir!(), "loan_actor_replay_file_test")
+  @file_dir FileTestSupport.dir()
 
   setup_all do
     :ok = FileStore.init(dir: @file_dir)
