@@ -29,7 +29,6 @@ defmodule LoanActor.Diary.File do
   alias LoanActor.Diary.Entry
   alias LoanActor.Diary.Store
 
-  @env Mix.env()
   @tail_scan_chunk 4096
 
   # ---- behaviour callbacks ----
@@ -119,17 +118,22 @@ defmodule LoanActor.Diary.File do
     end
   end
 
-  @impl Store
-  def wipe(loan_id) do
-    if @env == :prod, do: raise("Diary.File.wipe/1 is test-only and MUST NOT run in :prod")
-
-    locked(loan_id, fn ->
-      case File.rm(path(loan_id)) do
-        :ok -> :ok
-        {:error, :enoent} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    end)
+  if Mix.env() == :prod do
+    @impl Store
+    def wipe(_loan_id) do
+      raise "Diary.File.wipe/1 is test-only and MUST NOT run in :prod"
+    end
+  else
+    @impl Store
+    def wipe(loan_id) do
+      locked(loan_id, fn ->
+        case File.rm(path(loan_id)) do
+          :ok -> :ok
+          {:error, :enoent} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+      end)
+    end
   end
 
   # ---- append internals ----
@@ -162,30 +166,39 @@ defmodule LoanActor.Diary.File do
   end
 
   # Truncate a partial (no trailing newline) last line left by a crash.
+  # A missing file ({:error, :enoent}) needs no repair.
   defp repair!(path) do
-    with {:ok, io} <- :file.open(path, [:read, :write, :raw, :binary]) do
-      try do
-        size = file_size(io)
-
-        if size > 0 do
-          {:ok, last} = :file.pread(io, size - 1, 1)
-
-          if last != "\n" do
-            keep =
-              case last_newline_at(io, size) do
-                nil -> 0
-                at -> at + 1
-              end
-
-            {:ok, _} = :file.position(io, keep)
-            :ok = :file.truncate(io)
-            :ok = :file.sync(io)
-          end
+    case :file.open(path, [:read, :write, :raw, :binary]) do
+      {:ok, io} ->
+        try do
+          truncate_partial_tail(io)
+        after
+          :file.close(io)
         end
-      after
-        :file.close(io)
-      end
+
+      {:error, _} ->
+        :ok
     end
+
+    :ok
+  end
+
+  defp truncate_partial_tail(io) do
+    size = file_size(io)
+
+    _not_partial =
+      with true <- size > 0,
+           {:ok, last} when last != "\n" <- :file.pread(io, size - 1, 1) do
+        keep =
+          case last_newline_at(io, size) do
+            nil -> 0
+            at -> at + 1
+          end
+
+        {:ok, _} = :file.position(io, keep)
+        :ok = :file.truncate(io)
+        :ok = :file.sync(io)
+      end
 
     :ok
   end
@@ -282,7 +295,8 @@ defmodule LoanActor.Diary.File do
       type: map |> Map.fetch!("type") |> String.to_existing_atom(),
       actor: Map.fetch!(map, "actor"),
       payload_hash: map |> Map.fetch!("payload_hash") |> Base.decode64!(),
-      payload_ref: with(ref when ref != nil <- Map.get(map, "payload_ref"), do: Base.decode64!(ref)),
+      payload_ref:
+        with(ref when ref != nil <- Map.get(map, "payload_ref"), do: Base.decode64!(ref)),
       prev_hash: map |> Map.fetch!("prev_hash") |> Base.decode64!()
     })
   end

@@ -29,7 +29,6 @@ defmodule LoanActor.Diary.Mnesia do
   alias LoanActor.Diary.Entry
   alias LoanActor.Diary.Store
 
-  @env Mix.env()
   @table :loan_diary
 
   # ---- behaviour callbacks ----
@@ -82,8 +81,8 @@ defmodule LoanActor.Diary.Mnesia do
   @impl Store
   def read_range(loan_id, from, to) do
     spec = [
-      {{@table, {loan_id, :"$1"}, :"$2"},
-       [{:andalso, {:>=, :"$1", from}, {:"=<", :"$1", to}}], [:"$2"]}
+      {{@table, {loan_id, :"$1"}, :"$2"}, [{:andalso, {:>=, :"$1", from}, {:"=<", :"$1", to}}],
+       [:"$2"]}
     ]
 
     case :mnesia.transaction(fn -> :mnesia.select(@table, spec) end) do
@@ -113,18 +112,23 @@ defmodule LoanActor.Diary.Mnesia do
     end
   end
 
-  @impl Store
-  def wipe(loan_id) do
-    if @env == :prod, do: raise("Diary.Mnesia.wipe/1 is test-only and MUST NOT run in :prod")
+  if Mix.env() == :prod do
+    @impl Store
+    def wipe(_loan_id) do
+      raise "Diary.Mnesia.wipe/1 is test-only and MUST NOT run in :prod"
+    end
+  else
+    @impl Store
+    def wipe(loan_id) do
+      result =
+        :mnesia.transaction(fn ->
+          delete_from(loan_id, 0)
+        end)
 
-    result =
-      :mnesia.transaction(fn ->
-        delete_from(loan_id, 0)
-      end)
-
-    case result do
-      {:atomic, :ok} -> :ok
-      {:aborted, reason} -> {:error, reason}
+      case result do
+        {:atomic, :ok} -> :ok
+        {:aborted, reason} -> {:error, reason}
+      end
     end
   end
 
