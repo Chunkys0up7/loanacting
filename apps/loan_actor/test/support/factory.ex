@@ -30,6 +30,7 @@ defmodule LoanActor.Factory do
 
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
+  alias LoanActor.Event
   alias LoanActor.Goal
   alias LoanActor.State
   alias LoanActor.Tool.Context, as: ToolContext
@@ -260,6 +261,60 @@ defmodule LoanActor.Factory do
       {:context_not_map, state_attrs() |> Map.put(:context, [])},
       {:version_negative, state_attrs() |> Map.put(:version, -1)},
       {:last_heartbeat_at_not_datetime, state_attrs() |> Map.put(:last_heartbeat_at, "now")}
+    ]
+  end
+
+  # ---- Event factories (FT-013) ----
+  #
+  # Discovery checklist: schema source of truth is data-model.md `%Event{}` +
+  # its source/type enums. Scenario classes: happy (event_attrs/event
+  # defaults), boundary (minimal event_id, empty payload map -- both still
+  # valid; every source/type enum value), invalid
+  # (invalid_event_variants/0 -- one per validate/1 rule, each collapsing to
+  # the documented {:error, :invalid_event} shape). Deterministic: fixed
+  # timestamp (default_timestamp/0, already used by the diary factories).
+
+  @doc "Valid attribute map for building a `%LoanActor.Event{}` — source defaults to :test."
+  @spec event_attrs(map() | keyword()) :: map()
+  def event_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        event_id: "EVT-#{System.unique_integer([:positive, :monotonic])}",
+        source: :test,
+        type: :document_uploaded,
+        payload: %{},
+        created_at: default_timestamp(),
+        received_at: default_timestamp()
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build an `%Event{}` from `event_attrs/1` (not validated — pair with `Event.validate/1`)."
+  @spec event(map() | keyword()) :: Event.t()
+  def event(overrides \\ %{}), do: struct!(Event, event_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `%Event{}` attribute maps, one per `validate/1` rule.
+  Each element is `{label, attrs}`; `Event.validate(struct!(Event, attrs))`
+  returns `{:error, :invalid_event}` for every one.
+  """
+  @spec invalid_event_variants() :: [{atom(), map()}]
+  def invalid_event_variants do
+    [
+      {:event_id_nil, event_attrs() |> Map.put(:event_id, nil)},
+      {:event_id_empty, event_attrs(%{event_id: ""})},
+      {:event_id_not_binary, event_attrs() |> Map.put(:event_id, 42)},
+      {:source_nil, event_attrs() |> Map.put(:source, nil)},
+      {:source_invalid, event_attrs() |> Map.put(:source, :borrower)},
+      {:type_nil, event_attrs() |> Map.put(:type, nil)},
+      {:type_invalid, event_attrs() |> Map.put(:type, :not_a_real_event)},
+      {:payload_nil, event_attrs() |> Map.put(:payload, nil)},
+      {:payload_not_map, event_attrs() |> Map.put(:payload, "not a map")},
+      {:created_at_nil, event_attrs() |> Map.put(:created_at, nil)},
+      {:created_at_not_datetime, event_attrs() |> Map.put(:created_at, "2026-01-01")},
+      {:received_at_nil, event_attrs() |> Map.put(:received_at, nil)},
+      {:received_at_not_datetime, event_attrs() |> Map.put(:received_at, "2026-01-01")}
     ]
   end
 
