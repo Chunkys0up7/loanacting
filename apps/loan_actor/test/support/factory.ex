@@ -33,6 +33,7 @@ defmodule LoanActor.Factory do
   alias LoanActor.Event
   alias LoanActor.Goal
   alias LoanActor.State
+  alias LoanActor.State.Model
   alias LoanActor.Tool.Context, as: ToolContext
   alias LoanActor.Tool.Spec, as: ToolSpec
 
@@ -483,6 +484,63 @@ defmodule LoanActor.Factory do
   end
 
   defp pii_pad(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
+
+  # ---- Replay factories (FT-009) ----
+  #
+  # Discovery checklist: builds diary chains whose entry types follow a
+  # given event-type sequence, for tests that fold State.transition/2 over
+  # a diary and must reproduce the sequence that produced it. Scenario
+  # classes: happy (a full-coverage fixed walk, see replay_test.exs),
+  # property (legal_event_walk_gen/2 -- every generated walk is, by
+  # construction, a valid path through LoanActor.State.Model's graph).
+
+  @doc """
+  A valid diary chain for one loan: genesis entry typed `:spawned`,
+  followed by one entry per `event_type` in `event_types` (in order).
+  """
+  @spec chain_with_event_types([atom()], map() | keyword()) :: [Entry.t()]
+  def chain_with_event_types(event_types, overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    loan_id = Map.get(overrides, :loan_id, unique_loan_id())
+    genesis = entry(Map.merge(overrides, %{loan_id: loan_id, type: :spawned}))
+
+    {chain, _tail} =
+      Enum.reduce(event_types, {[genesis], genesis}, fn event_type, {acc, tail} ->
+        next = next_entry(tail, %{type: event_type})
+        {[next | acc], next}
+      end)
+
+    Enum.reverse(chain)
+  end
+
+  @doc """
+  StreamData generator producing a random LEGAL walk through
+  `LoanActor.State.Model`'s graph, starting at `:spawned`. Stops at a
+  terminal status (no next events, e.g. `:completed`) or after `max_steps`
+  transitions, whichever comes first. Built from proper `StreamData.bind`
+  combinators (not raw `:rand`), so it participates in the seeded,
+  shrinkable random stream like every other generator here.
+  """
+  @spec legal_event_walk_gen(atom(), pos_integer()) :: StreamData.t([atom()])
+  def legal_event_walk_gen(status \\ :spawned, max_steps \\ 10)
+
+  def legal_event_walk_gen(_status, 0), do: StreamData.constant([])
+
+  def legal_event_walk_gen(status, max_steps) do
+    case Model.next_events_for(status) do
+      [] ->
+        StreamData.constant([])
+
+      events ->
+        StreamData.bind(StreamData.member_of(events), fn event ->
+          {:ok, next_status} = Model.next_status(status, event)
+
+          StreamData.bind(legal_event_walk_gen(next_status, max_steps - 1), fn rest ->
+            StreamData.constant([event | rest])
+          end)
+        end)
+    end
+  end
 
   # ---- StreamData generators (opt-in randomness for property tests) ----
 
