@@ -23,7 +23,7 @@ defmodule LoanActor.MixProject do
 
   def application do
     [
-      # mod: {LoanActor.Application, []}, # restored in FT-016 when supervisor lands
+      mod: {LoanActor.Application, []},
       extra_applications: [:logger, :crypto, :mnesia]
     ]
   end
