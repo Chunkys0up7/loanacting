@@ -37,9 +37,30 @@ defmodule LoanActor.Factory do
   @spec default_timestamp() :: DateTime.t()
   def default_timestamp, do: @default_timestamp
 
-  @doc "Process-unique loan id (`\"L-<n>\"`); safe under `async: true`."
+  @doc """
+  Loan id unique within AND across test runs (`"L-<run>-<n>"`). The per-run
+  token matters because both diary stores persist to real disk locations that
+  outlive the BEAM: a bare monotonic counter restarts every run and would
+  collide with leftover data.
+  """
   @spec unique_loan_id() :: String.t()
-  def unique_loan_id, do: "L-#{System.unique_integer([:positive, :monotonic])}"
+  def unique_loan_id do
+    "L-#{run_token()}-#{System.unique_integer([:positive, :monotonic])}"
+  end
+
+  defp run_token do
+    key = {__MODULE__, :run_token}
+
+    case :persistent_term.get(key, nil) do
+      nil ->
+        token = Base.hex_encode32(:crypto.strong_rand_bytes(5), case: :lower)
+        :persistent_term.put(key, token)
+        token
+
+      token ->
+        token
+    end
+  end
 
   @doc """
   Deterministic payload hash for `(loan_id, sequence)` — 32 bytes, distinct per

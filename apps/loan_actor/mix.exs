@@ -31,8 +31,8 @@ defmodule LoanActor.MixProject do
   # lib/credo is excluded: custom Credo checks are loaded by Credo itself via
   # .credo.exs `requires` and must not be compiled into the app (Credo is a
   # dev/test-only dependency).
-  defp elixirc_paths(:test), do: ["lib/loan_actor", "test/support"]
-  defp elixirc_paths(_), do: ["lib/loan_actor"]
+  defp elixirc_paths(:test), do: ["lib/loan_actor", "lib/mix", "test/support"]
+  defp elixirc_paths(_), do: ["lib/loan_actor", "lib/mix"]
 
   defp deps do
     [

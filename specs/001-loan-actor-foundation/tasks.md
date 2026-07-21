@@ -20,7 +20,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-004 | DONE | `FT-004` commit |
 | FT-005 | DONE | `2af785a` |
 | FT-006 | DONE | `FT-006` commit (incl. factory seed of FT-037 + shared store suite) |
-| FT-007 | DONE | this commit |
+| FT-007 | DONE | `FT-007` commit |
+| FT-008 | DONE | this commit |
 
 ---
 
