@@ -21,7 +21,10 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-005 | DONE | `2af785a` |
 | FT-006 | DONE | `FT-006` commit (incl. factory seed of FT-037 + shared store suite) |
 | FT-007 | DONE | `FT-007` commit |
-| FT-008 | DONE | this commit |
+| FT-008 | DONE | `FT-008` commit |
+| FT-018b | SUPERSEDED | by FT-044 (intent 0004) |
+
+*(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 
 ---
 
@@ -140,23 +143,20 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 - Taxonomy: happy / error / boundary.
 - Depends on: FT-008, FT-011, FT-014, FT-015, FT-016.
 
-### FT-018 — Server periodic loop (heartbeat)
-- Deliverable: `handle_info(:heartbeat, _)`. Configurable interval (config: `:heartbeat_ms`, default 60_000; test override).
+### FT-018 — Server periodic loop (heartbeat) *(amended by 0004)*
+- Deliverable: `handle_info(:heartbeat, _)`. Configurable interval (config: `:heartbeat_ms`, default 60_000; test override). The pass trigger-matches skills and self-initiated actions go through tools (`set_goal`, `verify_diary_chain`).
 - Tests: `test/server_heartbeat_test.exs` — verifies SC-011 cadence.
 - Taxonomy: happy / boundary.
-- Depends on: FT-017.
+- Depends on: FT-017, FT-043, FT-044.
 
-### FT-018b — Procedure loader runtime test (analysis Gap-1)
-- Deliverable: `lib/loan_actor/procedure_loader.ex` + `priv/procedures/0001-noop.md` + reload mechanism + tests.
-- Tests: `test/procedure_loader_test.exs` (initial load + add file + reload + sees new procedure).
-- Taxonomy: happy / boundary.
-- Depends on: FT-016.
+### FT-018b — ~~Procedure loader runtime test~~ **SUPERSEDED by FT-044** (intent 0004)
+- The single-file procedure loader was never built; skill packs + `Skill.Loader` (FT-044) replace it, including the analysis Gap-1 runtime-reload test.
 
-### FT-019 — Server planning loop (`:plan` self-message)
-- Deliverable: `handle_info(:plan, _)`. When goals are set, emits outbound `:document_request` `CustomEvent` over AG-UI (per SC-012).
-- Tests: `test/server_planning_test.exs` — verifies SC-012; race test: planning vs reactive event.
+### FT-019 — Server planning loop (`:plan` self-message) *(amended by 0004)*
+- Deliverable: `handle_info(:plan, _)`. When goals are set, the planning loop trigger-matches skills and invokes the `request_document` **tool** — producing the diary pair + full ToolCall sequence per SC-012 (rewritten).
+- Tests: `test/server_planning_test.exs` — verifies SC-012; race test: planning-loop tool invocation vs inbound reactive event.
 - Taxonomy: happy / race.
-- Depends on: FT-017, FT-024 (AG-UI encoder).
+- Depends on: FT-017, FT-023 (AG-UI encoder — dep id corrected by 0004; was mislabeled FT-024), FT-043, FT-044.
 
 ### FT-020 — Credo check `LoanActor.Credo.LoopTagging`
 - Deliverable: Enforces every `handle_*` clause carries a `# loop: reactive|periodic|planning` comment.
@@ -179,11 +179,11 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ## Track 6 — AG-UI encoder + SSE stream
 
-### FT-023 — `LoanActor.AGUI.Encoder` — 11 emitted event types per `contracts/ag-ui-events.md`
-- Deliverable: `lib/loan_actor/ag_ui/encoder.ex` producing canonical JSON per event.
-- Tests: `test/ag_ui/encoder_test.exs` snapshotting each event type (11 snapshots).
+### FT-023 — `LoanActor.AGUI.Encoder` — **15** emitted event types per `contracts/ag-ui-events.md` *(amended by 0004: + ToolCallStart/Args/End/Result)*
+- Deliverable: `lib/loan_actor/ag_ui/encoder.ex` producing canonical JSON per event, including the four ToolCall events (single-frame `ToolCallArgs`, PII-redacted args, deferred-Result HITL semantics).
+- Tests: `test/ag_ui/encoder_test.exs` snapshotting each event type (15 snapshots).
 - Taxonomy: contract / happy / boundary.
-- Depends on: FT-010, FT-005.
+- Depends on: FT-010, FT-005, FT-041.
 
 ### FT-024 — `LoanActor.AGUI.Stream` + `Subscriber` (bounded mailbox, slow-client resync per R-2)
 - Deliverable: per-subscriber GenServer; bounded queue (128); slow-client resync via fresh `StateSnapshot`.
@@ -217,11 +217,11 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ## Track 8 — HITL
 
-### FT-028 — `LoanActor.HITL` module — request emission + response handling
-- Deliverable: `lib/loan_actor/hitl.ex`; emits `CustomEvent name="hitl_request"`; first-response-wins semantics; conflict → `:approval_conflict` diary entry.
-- Tests: `test/hitl_test.exs` — happy, conflict, error (responding to non-existent request).
+### FT-028 — `LoanActor.HITL` module — request emission + response handling *(amended by 0004: rewired through the `request_operator_approval` tool)*
+- Deliverable: `lib/loan_actor/hitl.ex`; the HITL request is emitted by the `request_operator_approval` tool (`{:pending, request_id}`; Server parks `invocation_id ↔ request_id`); still emits `CustomEvent name="hitl_request"`; `respond_hitl/3` completes the deferred `ToolCallResult`; first-response-wins; conflict → `:approval_conflict` diary entry + error-shaped ToolCallResult.
+- Tests: `test/hitl_test.exs` — happy (deferred Result observed), conflict (double respond, first wins), error (responding to non-existent request).
 - Taxonomy: happy / error / race.
-- Depends on: FT-017, FT-023, FT-024.
+- Depends on: FT-017, FT-023, FT-024, FT-043.
 
 ---
 
@@ -232,13 +232,13 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 - Depends on: FT-001.
 
 ### FT-030 — `apps/web/src/lib/ag-ui-client.ts` typed SSE consumer
-- Deliverable: client implementing the consumer pattern from `.claude/skills/copilotkit/references/ag-ui-protocol.md`; reject unknown event types.
+- Deliverable: client implementing the consumer pattern from `.claude/skills/copilotkit/references/ag-ui-protocol.md`; reject unknown event types. *(0004: accepts the four ToolCall events; strict rejection retained; tolerates interleaving between a HITL `ToolCallEnd` and its deferred `ToolCallResult`.)*
 - Tests: `apps/web/test/ag-ui-client.test.ts` against a recorded stream + a live backend.
 - Taxonomy: happy / error / contract.
 - Depends on: FT-023, FT-029.
 
 ### FT-031 — `apps/web/src/types.ts` mirror of `contracts/ag-ui-events.md`
-- Deliverable: TypeScript types for every emitted event.
+- Deliverable: TypeScript types for every emitted event *(0004: 15 types incl. ToolCall discriminated-union members)*.
 - Tests: type-only; covered by FT-030 consumer tests.
 - Depends on: FT-029.
 
@@ -247,6 +247,12 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 - Tests: Vitest component tests; Playwright e2e `spawn-and-event.spec.ts`.
 - Taxonomy: happy / boundary.
 - Depends on: FT-030, FT-031, FT-027.
+
+### FT-045 *(new, 0004)* — `ToolCallCard` component
+- Deliverable: `apps/web/src/components/ToolCallCard.tsx` — correlates `ToolCallStart/Args/End/Result` by `tool_call_id`; renders pending state until Result (incl. long-lived HITL pending); rendered in `DiaryFeed`/`LoanView`.
+- Tests: Vitest (frame correlation, pending → resolved, error-shaped Result); covered e2e by FT-038.
+- Taxonomy: happy / boundary / error.
+- Depends on: FT-030, FT-031.
 
 ### FT-033 — `HitlInterruptCard` via `useHumanInTheLoop`
 - Deliverable: `apps/web/src/components/HitlInterruptCard.tsx`.
@@ -258,14 +264,14 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ## Track 10 — Property-based + replay + load
 
-### FT-034 — Property-based state-machine tests
-- Deliverable: `test/server_property_test.exs` using StreamData + `LoanActor.State.Model`. 10,000 sequences in CI.
+### FT-034 — Property-based state-machine tests *(amended by 0004)*
+- Deliverable: `test/server_property_test.exs` using StreamData + `LoanActor.State.Model`. 10,000 sequences in CI. Property extended: diaries containing tool-invocation entries replay to identical state; the tool-invocation sequence is replay-stable.
 - Tests: itself.
 - Taxonomy: happy / boundary / replay.
 - Depends on: FT-011, FT-017, FT-009.
 
-### FT-035 — Load test (`mix test.load`)
-- Deliverable: `test/load/nfr_load_test.exs` + Mix alias `test.load`. Asserts NFR-001..NFR-005, SC-001, SC-002.
+### FT-035 — Load test (`mix test.load`) *(amended by 0004)*
+- Deliverable: `test/load/nfr_load_test.exs` + Mix alias `test.load`. Asserts NFR-001..NFR-005, SC-001, SC-002 **with tool ceremony on** (diary pairs + 4 SSE frames per invocation) — this is the early-warning gate for intent 0004's hot-path risk.
 - Taxonomy: happy + performance (treated as boundary).
 - Depends on: FT-017, FT-018, FT-027.
 
@@ -278,14 +284,14 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ## Track 11 — Cross-cutting
 
-### FT-037 — Factory module `apps/loan_actor/test/support/factory.ex`
-- Deliverable: Factory pattern per `.claude/skills/test-data-forge/references/factory-patterns.md` for `%Event{}`, `%LoanActor.State{}`, `%Goal{}`, `%HITLRequest{}`. Each factory carries discovery-checklist comment.
-- Depends on: FT-010, FT-013.
+### FT-037 — Factory module `apps/loan_actor/test/support/factory.ex` *(amended by 0004)*
+- Deliverable: Factory pattern per `.claude/skills/test-data-forge/references/factory-patterns.md` for `%Event{}`, `%LoanActor.State{}`, `%Goal{}`, `%HITLRequest{}` + *(0004)* `tool_spec/1`, `skill/1` (+ on-disk pack writer), `tool_invocation_diary_pair/1`. Each factory carries discovery-checklist comment. (Diary.Entry factory landed with FT-006.)
+- Depends on: FT-010, FT-013, FT-041.
 
-### FT-038 — Cross-stack contract test (Playwright)
-- Deliverable: `apps/web/test/e2e/contract.spec.ts` — capture live AG-UI stream and diff against backend's snapshot test outputs.
+### FT-038 — Cross-stack contract test (Playwright) *(amended by 0004)*
+- Deliverable: `apps/web/test/e2e/contract.spec.ts` — capture live AG-UI stream and diff against backend's snapshot test outputs, **including ToolCall frames and the HITL deferred-Result sequence**.
 - Taxonomy: contract.
-- Depends on: FT-023, FT-030, FT-032.
+- Depends on: FT-023, FT-030, FT-032, FT-045.
 
 ### FT-039 — Mix tasks: `loan_actor.spawn`, `loan_actor.replay`, `loan_actor.verify_chain`, `loan_actor.dump_diary`
 - Deliverable: One `Mix.Task` per quickstart command.
@@ -299,23 +305,56 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ---
 
-## Dependency graph (high-level)
+## Track 12 — Tool layer + skills *(added by intent 0004)*
+
+### FT-041 — `LoanActor.Tool` behaviour + `Tool.Spec` + `Tool.Context` + `validate_args/2`
+- Deliverable: `lib/loan_actor/tool.ex`, `lib/loan_actor/tool/spec.ex` (JSON-schema **subset** validator: `type`/`properties`/`required`/`enum` — hard cap per `contracts/tool-behaviour.md`), `lib/loan_actor/tool/context.ex`.
+- Tests: `test/tool/spec_test.exs` — validator happy + each subset keyword's violation + boundary (empty schema, empty args); behaviour-surface pin vs `contracts/tool-behaviour.md`.
+- Taxonomy: happy / boundary / error / contract.
+- Depends on: FT-002.
+
+### FT-042 — `LoanActor.Tool.Registry` + shared tool contract suite
+- Deliverable: `lib/loan_actor/tool/registry.ex` (config-driven `:loan_actor, :tools` list; `list/0`, `fetch/1`, `invoke/3` with args validation + telemetry; **zero routing logic**); `test/support/tool_shared.ex` parameterized suite (mirrors `diary_store_shared.ex`).
+- Tests: `test/tool/registry_test.exs` — unknown tool, invalid args, telemetry, config injection of fixture tools.
+- Taxonomy: happy / error / contract.
+- Depends on: FT-041.
+
+### FT-043 — Foundation tool set (7 deterministic tools)
+- Deliverable: `lib/loan_actor/tools/{set_goal, satisfy_goal, request_document, transition_state, append_note, request_operator_approval, verify_diary_chain}.ex` — each returns **effects** (never mutates state); `request_operator_approval` returns `{:pending, request_id}`.
+- Tests: each via the shared tool suite + tool-specific effect tests; determinism (same args+ctx → same result); PII order-of-operations test (synthetic PII arg absent from redacted output).
+- Taxonomy: happy / boundary / error / security / replay.
+- Depends on: FT-041, FT-042, FT-010, FT-011 (state-effecting tools), FT-014 (PIIGuard).
+
+### FT-044 — `LoanActor.Skill` + `Skill.Loader` + demo pack *(replaces FT-018b)*
+- Deliverable: `lib/loan_actor/skill.ex`, `lib/loan_actor/skill/loader.ex` (pack loading from `priv/skills/`, restricted front-matter grammar, load-time `tools_required` validation, `reload/0`, naive trigger match per `contracts/skill-format.md`); demo pack `priv/skills/0001-demo-document-request/` (SKILL.md + one reference file).
+- Tests: `test/skill/loader_test.exs` against fixture packs in `test/fixtures/skills/` (valid / bad front-matter / unresolvable tools_required / multi-file); reload picks up an added pack (analysis Gap-1 inherited); non-matching state activates nothing.
+- Taxonomy: happy / boundary / error / contract.
+- Depends on: FT-041, FT-042.
+
+(FT-045 — `ToolCallCard` — is listed under Track 9 with its frontend siblings.)
+
+---
+
+## Dependency graph (high-level, as amended by 0004)
 
 ```
 FT-001 ─► FT-002 ─► (most others)
 FT-005 ─► FT-006 ─► (FT-007, FT-008)
+FT-041 ─► FT-042 ─► (FT-043, FT-044)                 ← tool layer precedes the Server track
 FT-008 + FT-011 + FT-014 + FT-015 + FT-016 ─► FT-017
-FT-017 ─► FT-018, FT-019, FT-025, FT-027, FT-028
-FT-023 ─► FT-024 ─► FT-025
-FT-029 ─► FT-030 + FT-031 ─► FT-032 ─► FT-033, FT-038
+FT-017 + FT-043 + FT-044 ─► FT-018, FT-019
+FT-017 ─► FT-025, FT-027, FT-028
+FT-041 ─► FT-023 ─► FT-024 ─► FT-025
+FT-029 ─► FT-030 + FT-031 ─► FT-032 ─► FT-033, FT-045 ─► FT-038
 FT-017 + FT-027 + FT-032 ─► FT-040
 ```
 
 ## Parallel batches the agent may attempt
 
-- Batch A (after FT-002): FT-003, FT-004, FT-022, FT-029. `[P]`
+- Batch A (after FT-002): FT-003, FT-004, FT-022, FT-029, FT-041. `[P]`
 - Batch B (after FT-005): FT-006 →  FT-007 `[P]` FT-008.
-- Batch C (after FT-017): FT-018 `[P]` FT-019 `[P]` FT-025.
+- Batch B2 (after FT-041): FT-042 → FT-043 `[P]` FT-044 (FT-043's state-effecting tools also need FT-010/011/014).
+- Batch C (after FT-017 + FT-043 + FT-044): FT-018 `[P]` FT-019 `[P]` FT-025.
 - Batch D (after FT-023): FT-024 `[P]` FT-031.
 
 `/speckit-implement` selects batches respecting the graph.
@@ -325,19 +364,19 @@ FT-017 + FT-027 + FT-032 ─► FT-040
 | Category | Tasks covering it |
 |---|---|
 | Happy | All production tasks. |
-| Boundary | FT-005, FT-010, FT-013, FT-014, FT-018, FT-023, FT-024, FT-032. |
-| Error | FT-005, FT-011, FT-013, FT-014, FT-016, FT-021, FT-026, FT-028, FT-033, FT-039. |
+| Boundary | FT-005, FT-010, FT-013, FT-014, FT-018, FT-023, FT-024, FT-032, FT-041, FT-044, FT-045. |
+| Error | FT-005, FT-011, FT-013, FT-014, FT-016, FT-021, FT-026, FT-028, FT-033, FT-039, FT-041, FT-042, FT-044, FT-045. |
 | Race | FT-008, FT-015, FT-019, FT-024, FT-025, FT-028. |
-| Replay | FT-007, FT-008, FT-009, FT-034, FT-036. |
-| Security | FT-005, FT-014, FT-021, FT-022, FT-026, FT-027. |
-| Contract | FT-006, FT-023, FT-030, FT-038. |
-| Performance | FT-035, FT-036. |
+| Replay | FT-007, FT-008, FT-009, FT-034 (incl. tool-entry replay), FT-036, FT-043. |
+| Security | FT-005, FT-014, FT-021, FT-022 (extended to `lib/loan_actor/tools/`), FT-026, FT-027, FT-043 (PII order-of-operations). |
+| Contract | FT-006, FT-023 (15 snapshots), FT-030, FT-038 (incl. ToolCall frames), FT-041, FT-042, FT-044. |
+| Performance | FT-035 (with tool ceremony on), FT-036. |
 
 Every applicable category has at least one task → SC-008 satisfied.
 
 ## Definition of done (foundation)
 
-- All FT-001..FT-040 PRs merged.
+- All FT-001..FT-045 PRs merged (FT-018b superseded by FT-044; intent 0004 tasks are part of this spec).
 - CI green on `main` for: `mix test`, `mix dialyzer`, `mix credo --strict`, `mix test.load`, `npm test`, Playwright e2e (including the contract test), and the smoke check.
 - Quickstart smoke checklist passes manually.
 - Constitution v1.0.0 still passes the matrix in `analysis.md`.

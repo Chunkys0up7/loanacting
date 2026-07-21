@@ -17,6 +17,7 @@ Key invariants of the architecture (treat as load-bearing — do not weaken with
 - **Deterministic-first, LLM-escalated.** Rules and calculations run as code. LLM calls are escalations, never the default. Every escalation is logged with cause.
 - **Immutable diary.** Every decision, input, escalation, and state transition is appended to the loan's diary. Diary is the audit trail and the basis for time-travel debugging.
 - **Operating procedures are content.** Compliance rules, escalation playbooks, and triggers live as versioned markdown the agent reads — not as hardcoded branches.
+- **Agent functions are tools and skills** *(constitution v1.2.0, intent 0004)*. Every self-initiated actor function is a typed, registered **tool** (JSON-schema'd args, diary-logged, streamed as AG-UI ToolCall events); when-to-use knowledge lives in **skill packs** (`priv/skills/<id>/SKILL.md` + references, trigger in front-matter). Which tools exist = code; when to use them = content. See §4a.
 - **Portable identity.** The loan carries its own MISMO + chain-anchor identity across origination → servicing → secondary market.
 
 ---
@@ -95,6 +96,21 @@ CopilotKit + AG-UI is the only sanctioned UI path. **Do not introduce a second c
 - **Operator HITL**: every operator-approval gate uses `useHumanInTheLoop` or `useLangGraphInterrupt`. Approvals are diary events.
 
 The `copilotkit` skill (installed at `.claude/skills/copilotkit/`) is the canonical reference. Invoke it for any UI work.
+
+---
+
+## 4a. Agent functions: tools + skills (constitution Principle VIII)
+
+Added by intent 0004. Binding rules when touching anything the loan actor *does on its own initiative* (periodic/planning loops, HITL emission):
+
+- **Every self-initiated function is a tool** — a module implementing `LoanActor.Tool` (`spec/0` + `execute/2`), listed in the config-driven registry. No bypassing the registry. Inbound event ingestion (reactive pipeline) is NOT a tool call.
+- **Tools return effects; the Server applies them** through `State.transition/2`. A tool that mutates state directly is a constitution violation (`NoDirectStateMutation`).
+- **Every invocation is glass-box**: diary pair (`:tool_invoked` → `:tool_completed`/`:tool_failed`) + AG-UI `ToolCallStart/Args/End/Result` (HITL's Result is deferred until the operator responds).
+- **PII order of operations**: tool args pass `PIIGuard` BEFORE diary hashing and BEFORE any UI emission. Cleartext PII never reaches the stream.
+- **Skills are content packs**: `priv/skills/<NNNN-slug>/SKILL.md` (front-matter: `name`, `version`, `description` = trigger, `tools_required`) + optional `references/`. Loader validates `tools_required` against the registry at load time. Every pack links to a test proving it fires.
+- **No routing logic in code**: the registry and tool modules contain zero trigger/selection logic — that's skill content (Principle VI).
+- **Hard caps**: args schemas use only `type`/`properties`/`required`/`enum`; front-matter is `key: value` + `[a, b]` lists only. Extending either requires an amendment intent.
+- Contracts: [`tool-behaviour.md`](specs/001-loan-actor-foundation/contracts/tool-behaviour.md) · [`skill-format.md`](specs/001-loan-actor-foundation/contracts/skill-format.md) · [`ag-ui-events.md`](specs/001-loan-actor-foundation/contracts/ag-ui-events.md) (tool-call semantics).
 
 ---
 

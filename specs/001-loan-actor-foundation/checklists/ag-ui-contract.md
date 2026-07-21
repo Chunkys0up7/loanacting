@@ -31,6 +31,15 @@ Applies to any PR that touches the AG-UI emission path (backend) or consumes it 
 - [ ] First-response-wins enforcement tested (FT-028 race test).
 - [ ] Conflict surfaces as `CustomEvent name="hitl_conflict"`, not as a `RunError`.
 
+## Tool calls *(added by intent 0004)*
+
+- [ ] Every tool invocation emits `ToolCallStart → ToolCallArgs → ToolCallEnd → ToolCallResult`, correlated by `tool_call_id`.
+- [ ] `ToolCallArgs` is a single frame carrying the **PII-redacted** args (synthetic-PII test proves cleartext never reaches the stream).
+- [ ] The diary `CustomEvent` for `:tool_invoked` precedes `ToolCallStart`; the terminal diary entry precedes `ToolCallResult`.
+- [ ] HITL deferred-Result semantics exercised: client tolerates interleaving between the HITL `ToolCallEnd` and its `ToolCallResult`; all other tools emit their four frames atomically.
+- [ ] Tool failure completes the sequence with an error-shaped `ToolCallResult`; no `RunError` is emitted for tool failures.
+- [ ] `ToolCallCard` correlates frames and renders pending → resolved states (FT-045 tests).
+
 ## Subscriber resync
 
 - [ ] Slow-consumer test (per research.md R-2) still green.

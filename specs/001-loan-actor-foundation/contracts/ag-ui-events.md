@@ -21,14 +21,26 @@ The backend emits a subset of the 17 AG-UI events. **This document is the source
 | `CustomEvent` | Diary entry append (for live feed) | `{type, name: "diary_entry", loan_id, entry: <%DiaryEntry{} as JSON>}` |
 | `CustomEvent` | HITL request | `{type, name: "hitl_request", loan_id, request: <%HITLRequest{}>}` |
 | `CustomEvent` | HITL conflict (two responses) | `{type, name: "hitl_conflict", loan_id, request_id}` |
+| `ToolCallStart` *(0004)* | Actor invokes a tool (any self-initiated function) | `{type, tool_call_id, tool_call_name, loan_id}` |
+| `ToolCallArgs` *(0004)* | Immediately after `ToolCallStart` — **one** frame (args are deterministic; no streaming) | `{type, tool_call_id, delta: <PII-redacted args as JSON string>}` |
+| `ToolCallEnd` *(0004)* | Args complete | `{type, tool_call_id}` |
+| `ToolCallResult` *(0004)* | Tool finished (or, HITL tool only: operator responded) | `{type, message_id, tool_call_id, content: <result or error as JSON string>}` |
 | `RunFinished` | Subscription closed normally | `{type, run_id}` |
 | `RunError` | Subscription closed on error | `{type, run_id, message, code}` |
 
-Events not emitted in foundation: `StepStarted`, `StepFinished`, `ToolCallStart`, `ToolCallArgs`, `ToolCallEnd`, `ToolCallResult`, `MessagesSnapshot`, `RawEvent`. Adding any requires an amendment intent.
+Events not emitted in foundation: `StepStarted`, `StepFinished`, `MessagesSnapshot`, `RawEvent`. Adding any requires an amendment intent. *(The four ToolCall events were added by intent 0004.)*
+
+## Tool-call semantics (0004)
+
+- **Every** tool invocation emits `ToolCallStart → ToolCallArgs → ToolCallEnd → ToolCallResult`, in that order, correlated by `tool_call_id` (the invocation id, UUIDv7).
+- The `CustomEvent diary_entry` for `:tool_invoked` precedes its `ToolCallStart`; the `CustomEvent diary_entry` for `:tool_completed`/`:tool_failed` precedes the `ToolCallResult`.
+- Args in `ToolCallArgs` are the **PII-guarded** (redacted) form — the same form whose hash lands in the diary. Cleartext PII never reaches the stream.
+- **Deferred result (HITL)**: the `request_operator_approval` tool emits `Start/Args/End` when invoked and defers `ToolCallResult` until `respond_hitl/3` delivers the operator's decision (or the conflict error). Strict clients MUST tolerate other events interleaving between a `ToolCallEnd` and its `ToolCallResult`. Every other foundation tool emits the full sequence atomically per invocation (no interleaving between its own four frames).
+- A tool failure still completes the sequence: `ToolCallResult.content` carries the error shape; the stream does NOT emit `RunError` for tool failures.
 
 ## Ordering guarantees
 
-- Per subscriber: `RunStarted` → `StateSnapshot` → (`StateDelta` | `CustomEvent` | `TextMessage*`)* → `RunFinished`.
+- Per subscriber: `RunStarted` → `StateSnapshot` → (`StateDelta` | `CustomEvent` | `TextMessage*` | `ToolCall*`)* → `RunFinished`.
 - A `StateDelta` for sequence `N` is always preceded by the `CustomEvent diary_entry` for the same diary append. This lets clients render diary first, state second, without inconsistency.
 - On subscriber resync (slow client), the stream restarts with a fresh `StateSnapshot`; previous deltas are not resent.
 

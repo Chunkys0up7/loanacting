@@ -1,24 +1,28 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
-Bump rationale (MINOR): Added new section "Post-Implementation Audit Cycle"
-  formalizing what happens after /speckit-implement completes for a spec.
-  Driven by intent 0002.
-Modified principles: none renamed/redefined.
+Version change: 1.1.0 → 1.2.0
+Bump rationale (MINOR): Added new Principle VIII "Agent Functions Are Tools and
+  Skills". No existing principle renamed/redefined; the four ToolCall events are
+  within the existing "17 canonical events" architectural invariant (no invariant
+  change → no MAJOR). Driven by intent 0004.
+Modified principles: none renamed/redefined. (Principle VI wording untouched —
+  skill packs are its satisfying mechanism; audit-cycle artifact wording updated
+  priv/procedures/ → priv/skills/.)
 Added sections:
-  - Post-Implementation Audit Cycle (between Development Workflow and Governance)
+  - Core Principle VIII (after VII)
 Removed sections: N/A
 Templates requiring updates:
-  - intents/TEMPLATE.md                          ✅ updated (lifecycle adds Closed)
-  - intents/README.md                            ✅ updated (lifecycle table)
-  - CLAUDE.md                                    ✅ updated (new §6b)
+  - CLAUDE.md                                    ✅ updated (§1 invariants + §4a)
   - specs/001-loan-actor-foundation/
-      checklists/definition-of-done.md           ✅ updated (Closeout section)
-  - .specify/templates/checklist-template.md     ⚠ pending (future intents should
-                                                   reference closeout artifacts)
+      checklists/constitution-compliance.md      ✅ updated (Principle VIII gates)
+      checklists/definition-of-done.md           ✅ updated (tools/skills gates, path fix)
+      checklists/ag-ui-contract.md               ✅ updated (ToolCall section)
+      checklists/test-coverage.md                ✅ updated (tools & skills rows)
+  - .specify/templates/checklist-template.md     ⚠ pending (carried from 1.1.0)
 
 Prior history:
+  v1.1.0 (2026-05-26) — Post-Implementation Audit Cycle added (intent 0002).
   v1.0.0 (2026-05-26) — Initial ratification.
 -->
 
@@ -116,6 +120,37 @@ test/...                            ← the TESTS (alongside code, never after)
 - MUST: All artifact layers (intent, spec, plan, tasks, checklists) are committed.
 - MUST NOT: Skip `/speckit-tasks` or `/speckit-checklist`, even for "small" changes.
 
+### VIII. Agent Functions Are Tools and Skills (NON-NEGOTIABLE)
+
+*(Added by intent 0004, v1.2.0.)* Every **self-initiated** function of a loan actor — what
+its periodic and planning loops choose to do, including HITL emission — is a **tool**: a
+typed, individually invokable, deterministic function. Operating knowledge that decides
+*when* to use tools is a **skill**: a versioned markdown pack the actor trigger-matches at
+runtime. Which tools *exist* is code; when to *use* them is content.
+
+**Vocabulary** (binding project-wide): **tool** = typed invocable function with a name,
+description, and JSON-schema'd parameters. **skill** = directory pack (`SKILL.md` manifest
+with front-matter `name`/`version`/`description`-as-trigger/`tools_required` + optional
+reference files). **capability** = a sub-agent process a future intent spawns *via* a tool
+call (this reconciles the "recruits capability" language of the architecture rationale).
+
+**Rules:**
+- MUST: Every self-initiated actor function is a registered tool implementing the tool
+  behaviour; none bypass the registry. Inbound event ingestion (the reactive pipeline) is
+  NOT a tool call.
+- MUST: Every tool invocation appends diary entries (`:tool_invoked` →
+  `:tool_completed`/`:tool_failed`) and streams to the UI as the four AG-UI ToolCall events.
+- MUST: Tool arguments pass the PII guard BEFORE diary hashing and BEFORE any UI emission.
+- MUST: Tools return effects; the actor applies them through its single state-transition
+  gate. Tools never mutate state directly.
+- MUST: Skills are git-versioned packs whose `tools_required` are validated against the
+  registry at load time, each linked to a test proving it fires.
+- MUST NOT: Put routing, trigger, or selection logic in the registry or tool modules —
+  that is skill content (Principle VI).
+- Rationale: Uniform shape for everything the loan does; glass-box operator visibility;
+  replay-stable function calls; the seam where 0003's decision harness and future LLM
+  escalation attach without architectural change.
+
 ---
 
 ## Architectural Invariants
@@ -176,7 +211,7 @@ Written into the spec's directory, alongside `spec.md` / `plan.md` / etc.
    - SHOULD be authored by an operator/agent different from the implementer. Solo work is permitted; in that case the auditor self-attests and the document records it.
    - MUST list every spec FR / NFR / SC and map to the test or code location proving fulfillment.
    - MUST list deviations from the spec (any FR / NFR / SC modified, deferred, or interpreted differently than the original spec stated). Empty deviation list is acceptable; missing deviation section is a fail.
-   - MUST list any procedure documents (`priv/procedures/…`) added or modified during implementation, with their trigger conditions.
+   - MUST list any skill packs (`priv/skills/…`) added or modified during implementation, with their trigger conditions. *(Wording updated by 0004; formerly "procedure documents (`priv/procedures/…`)".)*
 
 2. **`report.md`** — Operator-facing implementation report.
    - MUST summarize what shipped in business language (no Elixir module names in the summary; technical detail comes later in the doc).
@@ -232,4 +267,4 @@ audit(NNNN): <slug> — implementation closeout (v<spec-version>)
 - **Compliance review**: every PR description MUST state how the change complies with this constitution. PRs that do not are rejected by the reviewer (human or agent).
 - **Source of truth for principles**: this file. `CLAUDE.md` mirrors these principles for agent context but does not override them.
 
-**Version**: 1.1.0 | **Ratified**: 2026-05-26 | **Last Amended**: 2026-05-26
+**Version**: 1.2.0 | **Ratified**: 2026-05-26 | **Last Amended**: 2026-07-21

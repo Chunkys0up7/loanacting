@@ -83,7 +83,7 @@ Append-only diary record.
 | `loan_id` | `String.t` | |
 | `sequence` | `non_neg_integer` | Local per-loan ordering. |
 | `timestamp` | `DateTime.t` | Receiver clock. |
-| `type` | `atom` | Same enum as `Event.type` plus `:spawned`, `:state_transition`, `:duplicate_rejected`, `:approval_conflict`. |
+| `type` | `atom` | Same enum as `Event.type` plus `:spawned`, `:state_transition`, `:duplicate_rejected`, `:approval_conflict`, and *(0004)* `:tool_invoked`, `:tool_completed`, `:tool_failed`, `:skill_activated`. (`Entry.new/1` accepts any atom; the enum is normative documentation — extending it is a data-model edit, not a code change.) |
 | `actor` | `String.t` | Operator id, or `"system"`. |
 | `payload_hash` | `binary` (32 bytes BLAKE2b-256) | Hash of canonical-JSON of payload AFTER `PIIGuard`. |
 | `payload_ref` | `binary \| nil` | Optional pointer (URI) into the (future) PII vault. `nil` in foundation. |
@@ -111,16 +111,30 @@ Append-only diary record.
 
 Two responses to the same `request_id` → second is rejected, diary entry `:approval_conflict` appended.
 
-### `%LoanActor.Procedure{}` (stub)
+### `%LoanActor.Tool.Spec{}` *(0004)*
 
 | Field | Type | Notes |
 |---|---|---|
-| `id` | `String.t` | Filename without extension. |
-| `trigger` | `String.t` | Front-matter declared (foundation: free-form string; later intents will parse). |
-| `body` | `String.t` | Markdown. |
-| `path` | `Path.t` | On-disk path. |
+| `name` | `String.t` | Registry key and AG-UI `tool_call_name`. |
+| `description` | `String.t` | Human/skill-readable purpose. |
+| `parameters` | `map` | JSON-schema **subset** (`type`/`properties`/`required`/`enum` only — hard cap per `contracts/tool-behaviour.md`). |
 
-Foundation ships exactly one procedure: `priv/procedures/0001-noop.md` to prove the loader path.
+Returned by each tool module's `spec/0`. `%LoanActor.Tool.Context{loan_id, state, loop, actor, invocation_id}` accompanies every `execute/2`. Tools return **effects**; the Server applies them via `transition/2` (tools never mutate state).
+
+### `%LoanActor.Skill{}` *(0004; supersedes `%Procedure{}`)*
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `String.t` | Pack directory name (`NNNN-kebab-slug`). |
+| `name` | `String.t` | Front-matter. |
+| `version` | `String.t` | Semver, front-matter. |
+| `description` | `String.t` | **The trigger** — matched against `{status, event type, open goal descriptions}` (foundation: normalized substring). |
+| `tools_required` | `[String.t]` | Validated against the tool registry at load time; unresolvable pack → rejected. |
+| `body` | `String.t` | SKILL.md markdown below the front-matter. |
+| `files` | `[Path.t]` | Reference files under the pack dir. |
+| `path` | `Path.t` | Pack directory. |
+
+Foundation ships exactly one pack: `priv/skills/0001-demo-document-request/` (SKILL.md + one reference file) to prove load → trigger-match → tool-resolution. Format contract: `contracts/skill-format.md`.
 
 ---
 

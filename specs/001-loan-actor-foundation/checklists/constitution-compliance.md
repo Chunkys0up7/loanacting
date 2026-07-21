@@ -31,8 +31,16 @@ Every PR closing a task in [`tasks.md`](../tasks.md) MUST pass this checklist. P
 - [ ] If an LLM escalation path is introduced (future intent): three-tests rule applied (deterministic-only, escalation trigger, each LLM failure mode).
 
 ### Principle VI — Operating procedures are content
-- [ ] If hardcoded logic was added that *could* be a procedure, justify in PR description why it isn't.
-- [ ] Procedure loader test still green.
+- [ ] If hardcoded logic was added that *could* be skill content, justify in PR description why it isn't.
+- [ ] Skill loader test still green.
+
+### Principle VIII — Agent functions are tools and skills *(constitution v1.2.0, intent 0004)*
+- [ ] Every new self-initiated actor function is a registered tool (behaviour + spec + schema'd args); none bypass the registry.
+- [ ] Every tool invocation produces the diary pair (`:tool_invoked` → `:tool_completed`/`:tool_failed`) and the four ToolCall AG-UI events.
+- [ ] Tool args pass PIIGuard BEFORE diary hashing and BEFORE AG-UI emission (synthetic-PII test green).
+- [ ] Tools return effects; no tool mutates state directly (`NoDirectStateMutation` green; effects applied via `transition/2`).
+- [ ] Zero routing/trigger/selection logic in the registry or tool modules — when-to-use lives in skill packs.
+- [ ] New/changed skill packs are valid per `contracts/skill-format.md` and linked to a test proving they fire.
 
 ### Principle VII — Portable identity & artifacts
 - [ ] New behavior is traceable back to an intent file under `intents/`.

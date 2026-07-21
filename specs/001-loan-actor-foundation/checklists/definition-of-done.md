@@ -4,7 +4,8 @@ The foundation milestone is **done** when every item below is ticked. PR descrip
 
 ## Functional
 
-- [ ] FT-001..FT-040 merged on `main`.
+- [ ] FT-001..FT-045 merged on `main` (FT-018b superseded by FT-044 per intent 0004).
+- [ ] Every self-initiated actor function goes through the tool registry; the demo skill pack triggers and its tool call renders in the UI as a `ToolCallCard` (SC-012/013/014).
 - [ ] Smoke checklist in `quickstart.md` passes manually on a fresh clone.
 - [ ] `iex -S mix` boots a single-node BEAM; `npm --prefix apps/web run dev` boots the SPA; visiting `/loans/L-DEMO` shows a live actor.
 - [ ] Kill the loan process; supervisor restarts it within 1 s; UI reconnects; state is identical.
@@ -28,12 +29,12 @@ The foundation milestone is **done** when every item below is ticked. PR descrip
 - [ ] `plan.md` Constitution Check section re-checked and green (post-Phase-1 re-check filled in).
 - [ ] `analysis.md` shows no remaining open gaps.
 - [ ] `quickstart.md` commands are reproducible from a fresh clone (verified by CI smoke job).
-- [ ] All four `contracts/*.md` documents reflect the implementation 1:1 (no drift).
+- [ ] All six `contracts/*.md` documents (incl. `tool-behaviour.md`, `skill-format.md` from 0004) reflect the implementation 1:1 (no drift).
 - [ ] `README.md` points to the right places (quickstart, constitution, intents, CLAUDE.md).
 
 ## Constitution compliance
 
-- [ ] `.specify/memory/constitution.md` v1.0.0 unchanged (no scope creep). If anything required an amendment, the constitution was bumped through the documented procedure.
+- [ ] `.specify/memory/constitution.md` at v1.2.0 (amended by intents 0002, 0004 through the documented procedure); no further unversioned changes.
 - [ ] Every merged PR's description ticked the `constitution-compliance.md` checklist.
 - [ ] No deferred items marked `TODO` in the constitution.
 
@@ -51,7 +52,7 @@ After every `FT-*` task PR has merged, BEFORE the intent can move to `Closed`:
 - [ ] `specs/001-loan-actor-foundation/audit.md` exists and:
   - Maps every FR / NFR / SC to the test or code proving fulfillment.
   - Lists deviations from the spec (empty list explicitly stated, not omitted).
-  - Lists new/changed procedure documents (`priv/procedures/…`).
+  - Lists new/changed skill packs (`priv/skills/…`).
   - Names the auditor; flags solo-author self-attestation if applicable.
 - [ ] `specs/001-loan-actor-foundation/report.md` exists and:
   - Summarizes shipped functionality in business language.

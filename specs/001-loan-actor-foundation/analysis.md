@@ -107,3 +107,35 @@ Once SC-011 and SC-012 are added to `spec.md` and task FT-018b is added to `task
 | `data-model.md` `Procedure.trigger` field | Said "front-matter declared (foundation: free-form string)"; loader test (FT-018b) expects to read it | Acceptable for foundation; no fix needed |
 
 Applying the fixes inline now.
+
+---
+
+# Re-analysis — amendment 0004 (2026-07-21): agent functions are tools and skills
+
+Cross-artifact consistency check re-run over the amended spec 001 artifacts.
+
+## Constitution alignment (v1.2.0)
+
+| Principle | Artifact evidence | Status |
+|---|---|---|
+| I. Loan-is-the-actor | Tool invocation internal-only (`loan-actor-api.md` normative note; clarify Q8) — no external orchestration seam | ✅ |
+| III. Deterministic-first | Foundation tool set is deterministic-only; SC-009 grep extended to `lib/loan_actor/tools/`; first LLM tool arrives in 0003 behind the gate | ✅ |
+| IV. Immutable diary | Tool pairs (`:tool_invoked` → terminal) are ordinary chained entries; `Entry.new/1` already accepts the new type atoms (no code change to merged diary track) | ✅ |
+| V. Taxonomic tests | Taxonomy summary table extended (FT-041..045 rows); tool/skill categories in `test-coverage.md` | ✅ |
+| VI. Procedures are content | Skill packs ARE the procedure mechanism; registry holds zero routing logic (pinned in `tool-behaviour.md` invariant 6) | ✅ |
+| VIII. Tools and skills (new) | FR-016/017/018 + SC-012(rew)/013/014 + two new contract docs + FT-041..045 | ✅ |
+
+## Consistency findings
+
+| Where | Issue | Resolution |
+|---|---|---|
+| `tasks.md` FT-019 | Dep said "FT-024 (AG-UI encoder)" — encoder is FT-023 | Fixed in the amended task text |
+| `spec.md` SC-012 vs FR-018 | Old SC-012 pinned `CustomEvent name="document_request"`; conflicted with all-tools-stream rule | SC-012 rewritten onto the `request_document` ToolCall sequence |
+| PII invariant vs `ToolCallArgs` | Cleartext args would reach the browser | PIIGuard-before-hash-and-emission rule encoded in FR-016, `tool-behaviour.md` invariant 3, Principle VIII checklist |
+| Reactive pipeline double-logging risk | If ingestion were a tool call, every event produces two diary pairs | Clarify Q11: reactive pipeline is NOT a tool call |
+| `definition-of-done.md` / constitution closeout | Referenced `priv/procedures/…` | Both updated to `priv/skills/…` |
+| Old FT-018b | Single-file procedure loader superseded before being built | Marked SUPERSEDED by FT-044; Gap-1's reload test inherited by FT-044 |
+
+## Verdict
+
+**PASS.** No unresolved conflicts between spec.md, plan.md, data-model.md, contracts/, tasks.md, checklists, and constitution v1.2.0. Implementation may resume at FT-041 (Batch A parallel-eligible) per the amended dependency graph.

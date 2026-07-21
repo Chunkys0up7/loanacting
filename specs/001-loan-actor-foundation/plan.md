@@ -4,7 +4,8 @@
 **Date**: 2026-05-26
 **Spec**: [`spec.md`](spec.md)
 **Clarifications**: [`clarifications.md`](clarifications.md)
-**Constitution**: [`v1.0.0`](../../.specify/memory/constitution.md)
+**Constitution**: [`v1.2.0`](../../.specify/memory/constitution.md)
+**Amended**: 2026-07-21 by intent 0004 — agent functions are tools + skills (structure tree, Principle VIII row, tracks 12/14, FT-041..045).
 
 ## Summary
 
@@ -46,10 +47,11 @@ Foundation establishes the loan as a long-running supervised process on the BEAM
 | III. Deterministic-first | ✅ | Foundation contains zero LLM calls. SC-009 grep test enforces. |
 | IV. Immutable diary | ✅ | `DiaryStore` behaviour; chain-linked entries; atomic write with state mutation; tamper-detection test (SC-006). |
 | V. Test-first, taxonomic coverage | ✅ | Test taxonomy mapped in tasks.md; property-based tests via StreamData; load tests assert NFRs. |
-| VI. Operating procedures are content | ⚠ | Foundation includes only a no-op procedure to prove the loading path. Real procedure semantics are a later intent — but the loader interface MUST be present. Tracked as task FT-018. |
+| VI. Operating procedures are content | ⚠ | Foundation includes one demo **skill pack** to prove the load → trigger → tool path (0004). Real skill semantics are a later intent (0003) — but the loader interface MUST be present. Tracked as FT-044. |
+| VIII. Agent functions are tools and skills (0004) | ✅ | `LoanActor.Tool` behaviour + config-driven registry (FT-041/042); 7 deterministic foundation tools (FT-043); skill packs + loader (FT-044); every invocation diary-logged and streamed as ToolCall events (FT-023); PIIGuard before hashing AND emission; reactive pipeline explicitly non-tool (clarify Q11). |
 | VII. Portable identity & artifacts | ✅ | `loan_id` is UUIDv7; spec/clarifications/plan/tasks/checklist artifacts all committed. |
 | Architectural invariants | ✅ | Runtime: BEAM. UI: CopilotKit + AG-UI. PII out of diary. NFR budgets in NFR section. |
-| Anti-vibe clauses | ✅ | No stubs without a corresponding intent (only the procedure-loader stub, justified above). Examples in docs are test files. |
+| Anti-vibe clauses | ✅ | No stubs without a corresponding intent (only the demo skill pack, justified above). Examples in docs are test files. |
 
 **Re-check at end of Phase 1**: deferred until `data-model.md` + `quickstart.md` complete.
 
@@ -97,12 +99,21 @@ apps/
 │   │   │   │   ├── entry.ex                   # %DiaryEntry{} struct
 │   │   │   │   └── chain.ex                   # prev_hash + verify
 │   │   │   ├── ag_ui/
-│   │   │   │   ├── encoder.ex                 # Elixir → AG-UI JSON
+│   │   │   │   ├── encoder.ex                 # Elixir → AG-UI JSON (15 event types incl. ToolCall*)
 │   │   │   │   ├── stream.ex                  # SSE stream supervisor
 │   │   │   │   └── subscriber.ex              # Per-client subscription
-│   │   │   ├── hitl.ex                        # Interrupt request/response
-│   │   │   ├── procedure_loader.ex            # Reads markdown procedures (no-op for foundation)
-│   │   │   └── pii_guard.ex                   # Asserts events contain no PII
+│   │   │   ├── tool.ex                        # @behaviour LoanActor.Tool (0004)
+│   │   │   ├── tool/
+│   │   │   │   ├── spec.ex                    # %Tool.Spec{} + validate_args/2 (schema subset)
+│   │   │   │   ├── context.ex                 # %Tool.Context{}
+│   │   │   │   └── registry.ex                # config-driven; zero routing logic
+│   │   │   ├── tools/                         # 7 deterministic foundation tools (0004)
+│   │   │   │   ├── set_goal.ex … verify_diary_chain.ex
+│   │   │   ├── skill.ex                       # %Skill{} (0004)
+│   │   │   ├── skill/
+│   │   │   │   └── loader.ex                  # pack loading, trigger match, reload
+│   │   │   ├── hitl.ex                        # Interrupt request/response (via request_operator_approval tool)
+│   │   │   └── pii_guard.ex                   # Asserts events + tool args contain no PII
 │   │   ├── web/                               # Plug router (HTTP layer)
 │   │   │   ├── endpoint.ex                    # Bandit + Plug
 │   │   │   ├── router.ex                      # /loans, /loans/:id/events, /loans/:id/ag-ui
@@ -181,7 +192,7 @@ The clarifications resolved Q1–Q7. Remaining research questions, tracked in `r
 
 ## Phase 1 — Design (output: `data-model.md`, `quickstart.md`, `contracts/`)
 
-- **`data-model.md`** — full entity definitions (`Loan`, `DiaryEntry`, `Event`, `Goal`, `HITLRequest`, `HITLResponse`, `Procedure`) and the state-machine diagram.
+- **`data-model.md`** — full entity definitions (`Loan`, `DiaryEntry`, `Event`, `Goal`, `HITLRequest`, `HITLResponse`, `Tool.Spec`, `Skill`) and the state-machine diagram.
 - **`quickstart.md`** — the developer onboarding path: `mix deps.get`, `mix test`, `mix run` to start the BEAM node, `npm run dev` in `apps/web`, open `http://localhost:5173/loans/L-DEMO`.
 - **`contracts/`** — four contract documents listed in the project structure. These are referenced by both backend unit tests and frontend contract tests. Drift between contract docs and code is a CI failure.
 
@@ -200,8 +211,9 @@ Tasks will be sequenced under these tracks (ordering enforced by dependencies de
 9. **HITL mechanism** — backend interrupt event, frontend `useHumanInTheLoop`.
 10. **Property-based + replay tests** — StreamData suites.
 11. **Load test asserting NFR budgets** — Benchee + scripted load.
-12. **Procedure loader stub** — markdown reader with no-op procedure.
+12. **Skill loader + demo pack** *(0004; replaces "procedure loader stub")* — pack loading, trigger matching, reload, load-time tools_required validation.
 13. **CI wiring** — `mix test`, `mix dialyzer`, `mix credo --strict`, `npm test`, Playwright, load test.
+14. **Tool layer** *(0004)* — `LoanActor.Tool` behaviour, registry, 7 deterministic foundation tools, shared tool contract suite (FT-041..043, before the Server track).
 
 ## Phase 3 — Implement
 

@@ -2,6 +2,13 @@
 
 The public API of a loan actor process. Everything else in `LoanActor.*` is implementation detail.
 
+> **Tool invocation is internal-only** *(0004, normative)*: there is NO public
+> `invoke_tool/3` (or equivalent). Tools are summoned by the loan's own loops
+> (constitution Principle I — capabilities are summoned *by* the loan, never orchestrated
+> over it). External callers influence the loan by sending events (`send_event/2`) and
+> answering its questions (`respond_hitl/3`); the public surface below is unchanged by
+> intent 0004.
+
 ## Spawn / lookup
 
 ```elixir

@@ -1,8 +1,8 @@
 # Clarifications — Loan-Actor Foundation
 
 **Spec**: [`spec.md`](spec.md) · **Intent**: [`intents/0001-foundation-loan-as-actor.md`](../../intents/0001-foundation-loan-as-actor.md)
-**Resolves**: Q1–Q7 listed in spec.md and intent 0001.
-**Date**: 2026-05-26
+**Resolves**: Q1–Q7 listed in spec.md and intent 0001; Q8–Q11 from amendment intent 0004 (2026-07-21).
+**Date**: 2026-05-26 (Q1–Q7) · 2026-07-21 (Q8–Q11)
 
 Each resolution below is now binding for `/speckit-plan` and downstream. Reopening a resolved question requires an amendment intent.
 
@@ -130,6 +130,55 @@ Both implementations MUST pass the same property-based test suite.
 
 ---
 
+## Q8 — Public `invoke_tool/3` on the Server API? *(0004)*
+
+**Resolution: No. Tool invocation is internal-only.**
+
+**Rationale.** Constitution Principle I: capabilities are summoned **by** the loan, never
+orchestrated over it. A public invoke API would be an orchestration seam — external systems
+would drive the loan instead of the loan driving itself. External influence flows through
+`send_event/2` (facts) and `respond_hitl/3` (answers).
+
+**Locked decisions.** `contracts/loan-actor-api.md` carries the normative internal-only
+note; the public surface is unchanged by 0004.
+
+---
+
+## Q9 — Args-schema validation depth *(0004)*
+
+**Resolution: Hand-rolled JSON-schema subset — `type`, `properties`, `required`, `enum`. No new dependency.**
+
+**Rationale.** Foundation tools have small, flat argument maps; a full validator
+(`ex_json_schema`) is a dependency and an attack surface we don't need yet. The subset is a
+HARD CAP pinned in `contracts/tool-behaviour.md`; extending it requires an amendment
+(mirrors 0003's rule-DSL cap).
+
+---
+
+## Q10 — Skill trigger-match semantics for foundation *(0004)*
+
+**Resolution: Normalized substring/keyword match of the pack's `description` against the loan's match-text `{status, latest event type, open goal descriptions}`.**
+
+**Rationale.** Foundation must prove the load → trigger → tool path, not build a retrieval
+system. The naive matcher is deterministic, testable, and explicitly documented as such in
+`contracts/skill-format.md`. Intent 0003 owns assessment-driven selection.
+
+**Locked decisions.** A non-matching state activates zero skills (test-pinned);
+over-matching at foundation scale (one demo pack) is accepted.
+
+---
+
+## Q11 — Is inbound event ingestion a tool call? *(0004)*
+
+**Resolution: No. The reactive pipeline (PIIGuard → idempotency → transition → diary append) stays as specced; tools are the actor's SELF-INITIATED functions only (periodic/planning loops + HITL emission).**
+
+**Rationale.** Making ingestion a tool call would double-log every event (event entry + tool
+pair), blur `NoDirectStateMutation` semantics, and add ceremony to the hottest path
+(NFR-001). The glass-box value of ToolCall streaming is in what the loan chooses to do, not
+in what happens to it.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |
@@ -143,6 +192,8 @@ Both implementations MUST pass the same property-based test suite.
 | Auth | Env/header-injected operator id (real auth deferred) |
 | Build system | Mix umbrella (frontend lives at `apps/web/`, backend at `apps/loan_actor/`) |
 | AG-UI endpoint | `POST /loans/:loan_id/ag-ui` returning `text/event-stream` |
-| HITL mechanism | AG-UI `CustomEvent` + CopilotKit `useHumanInTheLoop` |
+| HITL mechanism | `request_operator_approval` tool (deferred ToolCallResult) + AG-UI `CustomEvent` + CopilotKit `useHumanInTheLoop` *(0004)* |
+| Agent functions | Tools (typed, registry-listed, effects-returning) + skill packs (`priv/skills/`, trigger = `description`) *(0004)* |
+| Tool invocation surface | Internal-only; no public invoke API *(0004, Q8)* |
 
 These decisions become inputs to `/speckit-plan`.

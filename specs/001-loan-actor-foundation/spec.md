@@ -8,7 +8,9 @@
 
 **Input**: Intent [`intents/0001-foundation-loan-as-actor.md`](../../intents/0001-foundation-loan-as-actor.md)
 
-**Constitution**: [`v1.0.0`](../../.specify/memory/constitution.md)
+**Amended**: 2026-07-21 by intent [`0004-amend-agent-functions-tools-skills`](../../intents/0004-amend-agent-functions-tools-skills.md) — agent functions are tools + skills (FR-016..018, SC-013/014; FR-007 + SC-012 rewritten; `Procedure` entity superseded by `ToolSpec` + `Skill`).
+
+**Constitution**: [`v1.2.0`](../../.specify/memory/constitution.md)
 
 ---
 
@@ -83,7 +85,7 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - **FR-004**: System MUST reject duplicate events (same `event_id`) as no-ops without appending a second diary entry.
 - **FR-005**: System MUST chain-link diary entries (each entry contains the hash of the previous entry) so that tampering is detectable.
 - **FR-006**: System MUST run three explicit loops per loan actor: reactive (mailbox), periodic (heartbeat), planning (goal-driven). Each loop's responsibilities MUST be classified in code.
-- **FR-007**: System MUST emit AG-UI events (`RunStarted`, `StateSnapshot`, `StateDelta`, `TextMessageContent`, `CustomEvent`) to subscribed clients reflecting the loan's lifecycle.
+- **FR-007**: System MUST emit AG-UI events (`RunStarted`, `StateSnapshot`, `StateDelta`, `TextMessage*`, `CustomEvent`, and — per FR-018 — `ToolCallStart`, `ToolCallArgs`, `ToolCallEnd`, `ToolCallResult`) to subscribed clients reflecting the loan's lifecycle. *(Amended by 0004.)*
 - **FR-008**: System MUST restart a crashed loan actor under OTP supervision within a bounded time and rehydrate state from diary replay.
 - **FR-009**: System MUST expose a CopilotKit-driven web UI rendering, for a given `loan_id`: current state, pending goals, live diary feed, and a control to send synthetic events.
 - **FR-010**: System MUST support a human-in-the-loop approval mechanism whereby a loan emits an interrupt event, the UI renders an approval card, and the operator's response resumes the loan and is recorded as a diary entry.
@@ -92,6 +94,9 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - **FR-013**: System MUST support reproducible state via diary replay for every state-mutating handler; this MUST be exercised by automated tests.
 - **FR-014**: System MUST log every LLM call site's *absence* — foundation contains zero LLM calls, and the test suite MUST assert this invariant.
 - **FR-015**: System MUST surface operator authentication as an injected operator identity (env-configured for foundation); real auth is deferred.
+- **FR-016** *(0004)*: Every **self-initiated** actor function (periodic/planning-loop actions, HITL emission) MUST be a **tool**: a registered module implementing the `LoanActor.Tool` behaviour with a name, description, and JSON-schema'd parameters (restricted subset: `type`/`required`/`enum`/`properties`). Tool invocation MUST validate args against the schema, MUST pass args through the PII guard **before** diary hashing and before any UI emission, MUST produce diary entries `:tool_invoked` then `:tool_completed` or `:tool_failed`, and MUST return effects that the Server applies through `State.transition/2` — tools never mutate state directly. Inbound event ingestion (the reactive pipeline) is NOT a tool call. The registry holds zero routing/trigger logic.
+- **FR-017** *(0004)*: Operating knowledge MUST load as **skill packs**: directories under `priv/skills/<id>/` with a `SKILL.md` manifest (front-matter: `name`, `version`, `description` — the trigger, `tools_required`) plus optional reference files. The loader MUST validate every `tools_required` entry against the tool registry at load time (unresolvable pack → rejected with logged reason), MUST support reload without restart, and MUST trigger-match skills against the loan's `{status, event type, open goal descriptions}` (foundation: normalized substring matching). Skill activation appends a `:skill_activated` diary entry. Skill packs supersede the single-file Procedure stub.
+- **FR-018** *(0004)*: **Every** tool invocation MUST stream to subscribed AG-UI clients as `ToolCallStart` → `ToolCallArgs` (single frame, PII-redacted args) → `ToolCallEnd` → `ToolCallResult`. The HITL tool defers its `ToolCallResult` until the operator responds (`respond_hitl`); all other foundation tools emit the full sequence atomically per invocation.
 
 ### Non-Functional Requirements
 
@@ -108,7 +113,8 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - **Event** — Inbound message to a loan: `event_id` (idempotency key), `type`, `payload`, `source`, `created_at`.
 - **HITLRequest** — Outbound interrupt: `request_id`, `loan_id`, `prompt`, `options`, `created_at`.
 - **HITLResponse** — Inbound approval: `request_id`, `decision`, `comment`, `operator_id`, `responded_at`.
-- **Procedure** *(stub for foundation)* — Markdown content with front-matter `trigger` condition. Foundation includes only one no-op procedure to prove the loading path; real procedures are later intents.
+- **ToolSpec** *(0004)* — Typed description of a tool: `name`, `description`, `parameters` (JSON-schema subset). Implemented by modules under the `LoanActor.Tool` behaviour; enumerated by the config-driven registry.
+- **Skill** *(0004; supersedes Procedure)* — Versioned markdown pack: `id`, `name`, `version`, `description` (trigger), `tools_required`, `body`, reference files, `path`. Foundation ships one demo pack (`priv/skills/0001-demo-document-request/`) proving load → trigger-match → tool-reference resolution.
 
 ## Success Criteria *(mandatory)*
 
@@ -125,7 +131,9 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - **SC-009**: A grep across the source tree for `LLM`, `OpenAI`, `Anthropic`, or `completion` returns zero hits in production code paths; a test in `test/llm_absence_test.exs` asserts the same. (Verifies FR-014, Constitution Principle III.)
 - **SC-010**: No diary entry contains a value matching the operator-supplied PII patterns (regex-based test against a synthetic PII corpus injected through events). (Verifies FR-011.)
 - **SC-011**: Configure heartbeat interval to 1 second; over 10 seconds observe ≥ 9 and ≤ 11 `:heartbeat` diary entries on a single loan. (Verifies FR-006 periodic loop.)
-- **SC-012**: Given a loan with goal `:require_document(:income)`, when the goal is set, the planning loop within one heartbeat emits a `CustomEvent name="document_request"` event over AG-UI. (Verifies planning loop semantics independent of HITL.)
+- **SC-012** *(rewritten by 0004)*: Given a loan with goal `:require_document(:income)`, when the goal is set, the planning loop within one heartbeat invokes the `request_document` **tool**, producing the diary pair (`:tool_invoked`, `:tool_completed`) and the `ToolCallStart → ToolCallArgs → ToolCallEnd → ToolCallResult` sequence over AG-UI, with the request payload carried in `ToolCallResult`. (Verifies planning loop semantics independent of HITL.)
+- **SC-013** *(0004)*: Invoking any registered tool on a live loan produces `:tool_invoked` + terminal (`:tool_completed`/`:tool_failed`) diary entries and the four ToolCall events observed by a subscribed client within 250 ms p95. A synthetic-PII argument injected into a tool call appears in **neither** the diary payload nor any ToolCall frame. (Verifies FR-016/FR-018, PII rule.)
+- **SC-014** *(0004)*: The demo skill pack trigger-matches a loan in `:awaiting_documents` with an open document goal, appends `:skill_activated`, resolves `tools_required` against the registry, and its named tool executes; a loan in a non-matching state activates zero skills; a pack naming a nonexistent tool is rejected at load with a logged reason. (Verifies FR-017.)
 
 ## Assumptions
 
@@ -133,7 +141,7 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - The reference hardware for performance budgets is a modern developer laptop (8 cores, 16 GB RAM, NVMe SSD). Production hardware targets are a separate intent.
 - The CopilotKit frontend runs as a single SPA against a single BEAM backend over LAN/loopback during foundation development. CDN delivery, multi-tenancy, and edge deployment are deferred.
 - Operator authentication is stubbed: an `OPERATOR_ID` env var or query string parameter identifies the operator. Real auth (OIDC, role-based) is a separate intent.
-- One "no-op" Procedure document is bundled to prove the loading path; foundation does not implement compliance/escalation procedure semantics.
+- One demo skill pack is bundled to prove the load → trigger → tool path; foundation does not implement compliance/escalation skill semantics. *(Amended by 0004; formerly a single no-op Procedure file.)*
 - The diary backing store for foundation is Mnesia (transactional, single-node, ships with OTP). The `DiaryStore` behaviour permits swapping to file-backed or a future external store.
 - LLM integration is intentionally absent in foundation. Hooks/abstractions for LLM escalation are introduced only when a later intent requires them.
 

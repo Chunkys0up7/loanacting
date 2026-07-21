@@ -39,6 +39,13 @@ Per Constitution Principle V. Coverage is by **category**, not by percentage. A 
 ### Contract
 - [ ] If `contracts/*.md` changed: the corresponding backend snapshot test and frontend type definitions also changed in the same PR.
 - [ ] Cross-stack contract test (`apps/web/test/e2e/contract.spec.ts`) green.
+- [ ] *(0004)* New/changed tools pass the shared tool contract suite (`tool_shared.ex` ↔ `contracts/tool-behaviour.md`).
+- [ ] *(0004)* New/changed skill packs pass the loader validation tests (`contracts/skill-format.md`).
+
+### Tools & skills *(added by intent 0004)*
+- [ ] Any new tool: happy + invalid-args (each schema keyword) + determinism + PII order-of-operations tests.
+- [ ] Any new skill pack: trigger-match positive AND negative (non-matching state activates nothing) tests.
+- [ ] Tool invocations appear in the replay property test's generated diaries.
 
 ### Performance
 - [ ] If the change could affect NFR budgets, `mix test.load` was run locally and the report attached to the PR description.
