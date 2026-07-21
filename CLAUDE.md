@@ -70,7 +70,7 @@ Architecture invariants (load-bearing — do not weaken without an amendment int
 
 ---
 
-## 2. Project state (snapshot 2026-07-21 — update this section when it drifts)
+## 2. Project state (snapshot 2026-07-21, updated later same day — update this section when it drifts)
 
 **Where truth lives** (check these at session start, in order):
 1. Status ledger in [`specs/001-loan-actor-foundation/tasks.md`](specs/001-loan-actor-foundation/tasks.md) — which FT tasks are DONE.
@@ -86,14 +86,30 @@ Architecture invariants (load-bearing — do not weaken without an amendment int
 | 0003 autonomous-decision-harness | Draft, **uncommitted** | Gates-as-tools decision layer; enters `/speckit-specify` only after 0001 is Implemented |
 | 0004 amend: tools + skills | Specified | Constitution v1.2.0 Principle VIII; spec 001 amended in place |
 
-**Implementation state (spec 001):** DONE — FT-001..FT-008 (umbrella, deps, credo
-scaffolds, CI, diary Entry/Chain, DiaryStore behaviour + File + Mnesia stores, factory +
-shared store suite) and FT-041/FT-042 (Tool behaviour + Spec validator + Context; Registry +
-shared tool suite). FT-018b superseded by FT-044. **Next in dependency order:**
-FT-010/011 (State + transition) → FT-013 (Event) → FT-014 (PIIGuard; wire the registry's
-`:tool_pii_guard` config) → FT-015/016 → FT-043 (7 foundation tools) ∥ FT-044 (skill
-loader + demo pack) → FT-017 (Server) → FT-023 (encoder, 15 event types) → onward per the
-amended graph in tasks.md.
+**Implementation state (spec 001):** DONE — FT-001..FT-017, FT-041..FT-044 (everything
+through Track 5's reactive loop plus the full tool+skill layer): umbrella/deps/credo/CI,
+diary Entry/Chain/Store/File/Mnesia + shared suite, State+Goal+transition/2+Model,
+NoDirectStateMutation Credo check (real AST walk), Event+validate/1, PIIGuard (hard gate)
++ pii_patterns.yml, Idempotency (carries diary sequence — clarifications Q13),
+Supervisor+Registry+Application, **Server reactive loop is alive**: `LoanActor.spawn/1` →
+`send_event/2` runs validate → PIIGuard → idempotency → transition → diary append
+atomically, crash-recovery rehydration replays the diary, all proven by an end-to-end
+integration test. Tool layer: `Tool`/`Tool.Spec`/`Tool.Context`, config-driven `Registry`,
+the 7 foundation tools (`set_goal`, `satisfy_goal`, `request_document`, `transition_state`,
+`append_note`, `request_operator_approval`, `verify_diary_chain`), `Skill`/`Skill.Loader` +
+the demo pack. FT-018b superseded by FT-044.
+
+**Next in dependency order:** FT-018 (periodic/heartbeat loop) ∥ FT-019 (planning loop) —
+both now unblocked (needed FT-017+FT-043+FT-044, all done) — then FT-020/021 (remaining
+Credo check AST walks), FT-022 (LLM-absence grep test), FT-023 (AG-UI encoder, 15 event
+types), FT-025..028 (HTTP + HITL), FT-029+ (frontend, currently just a scaffold stub),
+FT-034+ (property/load tests) per the amended graph in tasks.md.
+
+**Genuine spec ambiguities resolved this session (see clarifications.md Q12/Q13 for full
+reasoning — read before touching PIIGuard or Idempotency):** PIIGuard is a hard gate, not
+redact-and-continue; Idempotency's `loan_idem` record carries the diary sequence via a
+reserve-then-fill two-phase design. Also fixed: the FT-042 registry's `tool_pii_guard` slot
+now matches `PIIGuard.apply/1`'s real 3-shape return exactly.
 
 **Repo map:** `apps/loan_actor` (Elixir OTP app — lib, test, priv/skills) ·
 `apps/web` (Vite/React/TS + CopilotKit — scaffold incomplete, FT-029) ·
