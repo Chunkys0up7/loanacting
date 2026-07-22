@@ -32,6 +32,8 @@ defmodule LoanActor.Factory do
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
   alias LoanActor.Goal
+  alias LoanActor.HITLRequest
+  alias LoanActor.HITLResponse
   alias LoanActor.State
   alias LoanActor.State.Model
   alias LoanActor.Tool.Context, as: ToolContext
@@ -335,13 +337,20 @@ defmodule LoanActor.Factory do
     ]
   end
 
-  # ---- HITL request factory (FT-023; no %HITLRequest{} struct exists yet — FT-028) ----
+  # ---- HITL request/response factories (FT-023 map form; FT-028 real structs) ----
+  #
+  # Discovery checklist: schema source of truth is data-model.md's
+  # %LoanActor.HITLRequest{}/%LoanActor.HITLResponse{} tables. Scenario
+  # classes: happy (attrs/struct defaults), invalid
+  # (invalid_hitl_request_variants/invalid_hitl_response_variants — one
+  # per validator rule). Deterministic: fixed timestamp, unique ids from
+  # the shared monotonic-counter mechanism.
 
   @doc """
   Plain map matching data-model.md's `%HITLRequest{}` fields
   (`request_id`, `loan_id`, `prompt`, `options`, `created_at`) — used by
-  `AGUI.Encoder.hitl_request_event/2` ahead of FT-028 building the real
-  struct.
+  `AGUI.Encoder.hitl_request_event/2`, which accepts a plain map rather
+  than depending on `LoanActor.HITLRequest` (FT-023's own scope note).
   """
   @spec hitl_request_attrs(map() | keyword()) :: map()
   def hitl_request_attrs(overrides \\ %{}) do
@@ -355,6 +364,61 @@ defmodule LoanActor.Factory do
       },
       Map.new(overrides)
     )
+  end
+
+  @doc "Build a validated `%LoanActor.HITLRequest{}` from `hitl_request_attrs/1`."
+  @spec hitl_request(map() | keyword()) :: HITLRequest.t()
+  def hitl_request(overrides \\ %{}), do: HITLRequest.new(hitl_request_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `HITLRequest.new/1` inputs, one per violated field
+  invariant. Each element is `{label, attrs}`; every `attrs` raises `ArgumentError`.
+  """
+  @spec invalid_hitl_request_variants() :: [{atom(), map()}]
+  def invalid_hitl_request_variants do
+    [
+      {:request_id_empty, hitl_request_attrs(%{request_id: ""})},
+      {:loan_id_empty, hitl_request_attrs(%{loan_id: ""})},
+      {:prompt_empty, hitl_request_attrs(%{prompt: ""})},
+      {:options_empty, hitl_request_attrs() |> Map.put(:options, [])},
+      {:options_not_list, hitl_request_attrs() |> Map.put(:options, "approve")},
+      {:options_bad_element, hitl_request_attrs() |> Map.put(:options, ["approve", ""])},
+      {:created_at_not_datetime, hitl_request_attrs() |> Map.put(:created_at, "2026-01-01")}
+    ]
+  end
+
+  @doc "Valid attribute map for `LoanActor.HITLResponse.new/1`."
+  @spec hitl_response_attrs(map() | keyword()) :: map()
+  def hitl_response_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        request_id: "HITL-#{System.unique_integer([:positive, :monotonic])}",
+        decision: "approve",
+        comment: nil,
+        operator_id: "operator-1",
+        responded_at: default_timestamp()
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.HITLResponse{}` from `hitl_response_attrs/1`."
+  @spec hitl_response(map() | keyword()) :: HITLResponse.t()
+  def hitl_response(overrides \\ %{}), do: HITLResponse.new(hitl_response_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `HITLResponse.new/1` inputs, one per violated field
+  invariant. Each element is `{label, attrs}`; every `attrs` raises `ArgumentError`.
+  """
+  @spec invalid_hitl_response_variants() :: [{atom(), map()}]
+  def invalid_hitl_response_variants do
+    [
+      {:request_id_empty, hitl_response_attrs(%{request_id: ""})},
+      {:decision_empty, hitl_response_attrs(%{decision: ""})},
+      {:comment_not_binary, hitl_response_attrs() |> Map.put(:comment, 42)},
+      {:operator_id_empty, hitl_response_attrs(%{operator_id: ""})},
+      {:responded_at_not_datetime, hitl_response_attrs() |> Map.put(:responded_at, "2026-01-01")}
+    ]
   end
 
   # ---- Tool factories (FT-041; extended by FT-037) ----

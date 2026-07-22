@@ -1,15 +1,21 @@
 defmodule LoanActor.Web.Router do
   @moduledoc """
-  HTTP surface per `contracts/http-endpoints.md` (FT-027): `POST /loans`,
-  `POST /loans/:loan_id/events`, `GET|POST /loans/:loan_id/ag-ui`.
+  HTTP surface per `contracts/http-endpoints.md` (FT-027, HITL route added
+  by FT-028 once `LoanActor.respond_hitl/3` existed): `POST /loans`,
+  `POST /loans/:loan_id/events`, `POST /loans/:loan_id/hitl/:request_id`,
+  `GET|POST /loans/:loan_id/ag-ui`.
 
-  `POST /loans/:loan_id/hitl/:request_id` is deliberately NOT registered
-  yet — it requires `LoanActor.respond_hitl/3`, which does not exist until
-  FT-028. FT-027's own dependency list (FT-017, FT-024, FT-026) does not
-  include FT-028 either, so this mirrors the FT-019/FT-023 dependency gap
-  0004 already found and corrected: build what's buildable now, add the
-  HITL route when its dependency lands, rather than either blocking this
-  whole task or shipping a route that calls a function that doesn't exist.
+  ## HITL response (`POST /loans/:loan_id/hitl/:request_id`)
+
+  Body `{"decision": ..., "comment": ...}` (comment optional); the
+  operator id comes from `conn.assigns.operator_id` (`OperatorPlug`, which
+  already ran ahead of this route in the pipeline — no separate lookup).
+  `{:error, :not_found}` (a `request_id` the loan never parked) maps to
+  404 same as `:not_running`, distinguished by `error` value, since the
+  contract's general error table lists 404 for `/hitl` without splitting
+  out the two cases. A malformed body (e.g. missing `decision`) raises via
+  `HITLResponse.new/1` — uncaught, per the contract's own documented
+  "500 — unhandled" fallback; no 400 is listed for this route.
 
   ## AG-UI streaming (`GET|POST /loans/:loan_id/ag-ui`)
 
@@ -33,6 +39,7 @@ defmodule LoanActor.Web.Router do
 
   alias LoanActor.AGUI.Encoder
   alias LoanActor.Event
+  alias LoanActor.HITLResponse
   alias Uniq.UUID
 
   plug LoanActor.Web.OperatorPlug
@@ -52,6 +59,10 @@ defmodule LoanActor.Web.Router do
 
   post "/loans/:loan_id/events" do
     handle_send_event(conn, loan_id)
+  end
+
+  post "/loans/:loan_id/hitl/:request_id" do
+    handle_respond_hitl(conn, loan_id, request_id)
   end
 
   get "/loans/:loan_id/ag-ui" do
@@ -145,6 +156,43 @@ defmodule LoanActor.Web.Router do
   end
 
   defp parse_datetime(_other), do: nil
+
+  # ---- POST /loans/:loan_id/hitl/:request_id ----
+
+  defp handle_respond_hitl(conn, loan_id, request_id) do
+    response =
+      HITLResponse.new(%{
+        request_id: request_id,
+        decision: conn.body_params["decision"],
+        comment: conn.body_params["comment"],
+        operator_id: conn.assigns.operator_id,
+        responded_at: DateTime.utc_now()
+      })
+
+    case LoanActor.respond_hitl(loan_id, request_id, response) do
+      :ok ->
+        send_json(conn, 200, %{"result" => "accepted"})
+
+      {:conflict, existing} ->
+        send_json(conn, 409, %{"result" => "conflict", "existing_response" => hitl_response_as_json(existing)})
+
+      {:error, :not_found} ->
+        send_json(conn, 404, %{"error" => "request_not_found"})
+
+      {:error, :not_running} ->
+        send_json(conn, 404, %{"error" => "not_running"})
+    end
+  end
+
+  defp hitl_response_as_json(%HITLResponse{} = response) do
+    %{
+      "request_id" => response.request_id,
+      "decision" => response.decision,
+      "comment" => response.comment,
+      "operator_id" => response.operator_id,
+      "responded_at" => DateTime.to_iso8601(response.responded_at)
+    }
+  end
 
   # ---- GET|POST /loans/:loan_id/ag-ui ----
 

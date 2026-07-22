@@ -99,6 +99,45 @@ defmodule LoanActor.Server do
   If a subscribing process dies, `handle_info({:DOWN, ref, :process, _pid,
   _reason}, _)` removes it from `gen_state.subscribers` — a dead
   subscriber is never broadcast to again.
+
+  ## Tool-call streaming (FT-028; closes a gap left open by FT-018/019's
+  own moduledoc notes, which predate FT-024/025's subscriber wiring)
+
+  `invoke_tool/4` streams `ToolCallStart → ToolCallArgs → ToolCallEnd` for
+  every invocation immediately after the `:tool_invoked` diary entry, per
+  `contracts/ag-ui-events.md`'s tool-call semantics. `ToolCallResult`
+  follows immediately for a synchronous result (`{:ok, effects}` or
+  `{:error, reason}` — a tool failure still completes the sequence, per
+  the contract, with `content` carrying the error shape). The one
+  foundation exception is `request_operator_approval`'s `{:pending, id}`
+  result: `ToolCallResult` is deferred until `respond_hitl/3` delivers the
+  operator's decision (or observes a conflict) — `ToolCallEnd` through
+  `ToolCallResult` is the only gap a strict client must tolerate other
+  events interleaving into.
+
+  ## HITL (FT-028)
+
+  `request_operator_approval`'s `{:pending, request_id}` result parks a
+  `%LoanActor.HITLRequest{}` in `gen_state.hitl_requests` (keyed by
+  `request_id`, which doubles as the tool's `invocation_id`/AG-UI
+  `tool_call_id`) and broadcasts the already-specified `CustomEvent
+  name="hitl_request"`. `respond_hitl/3` completes the deferred
+  `ToolCallResult` for the first response; a later response for an
+  already-answered `request_id` is a conflict — it does NOT get a second
+  `ToolCallResult` for the same `tool_call_id` (AG-UI's contract has
+  exactly one Result per invocation), it gets the already-specified
+  `CustomEvent name="hitl_conflict"` plus an `:approval_conflict` diary
+  entry. Scope note: `respond_hitl/3` does not itself call
+  `State.transition/2` — FT-028's literal deliverable text describes only
+  the diary entry and delivering the deferred `ToolCallResult`; the
+  `operator_approval_granted`/`operator_approval_denied` state edges
+  remain reachable through the normal `send_event/2` reactive path, unchanged.
+
+  Known limitation (not asked for by any task): a supervisor restart loses
+  `gen_state.hitl_requests` (rebuilt empty on `init/1`) — a diary entry
+  carries only a hash of tool args, not enough to reconstruct a pending
+  request's prompt/options, and no task asks for cross-restart HITL
+  correlation.
   """
 
   use GenServer
@@ -109,6 +148,7 @@ defmodule LoanActor.Server do
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
+  alias LoanActor.HITLRequest
   alias LoanActor.Idempotency
   alias LoanActor.IllegalTransitionError
   alias LoanActor.PIIGuard
@@ -149,6 +189,18 @@ defmodule LoanActor.Server do
     GenServer.call(pid, {:subscribe, self(), opts})
   end
 
+  @doc """
+  Deliver the operator's decision for a pending HITL request. See
+  `contracts/loan-actor-api.md`. First response wins (`:ok`); a later
+  response for an already-answered `request_id` is `{:conflict,
+  existing_response}`; an unknown `request_id` is `{:error, :not_found}`.
+  """
+  @spec respond_hitl(pid(), String.t(), LoanActor.HITLResponse.t()) ::
+          :ok | {:conflict, LoanActor.HITLResponse.t()} | {:error, :not_found}
+  def respond_hitl(pid, request_id, %LoanActor.HITLResponse{} = response) do
+    GenServer.call(pid, {:respond_hitl, request_id, response})
+  end
+
   # ---- GenServer callbacks ----
 
   @impl GenServer
@@ -180,6 +232,19 @@ defmodule LoanActor.Server do
   # loop: reactive
   @impl GenServer
   def handle_call(:state, _from, gen_state), do: {:reply, gen_state.state, gen_state}
+
+  # External HITL answer (FT-028) — not a loop the actor drives itself,
+  # but handle_call/3 still requires a tag; reactive fits best since this
+  # is externally-triggered like send_event/subscribe.
+  # loop: reactive
+  @impl GenServer
+  def handle_call({:respond_hitl, request_id, response}, _from, gen_state) do
+    case Map.fetch(gen_state.hitl_requests, request_id) do
+      :error -> {:reply, {:error, :not_found}, gen_state}
+      {:ok, %{response: nil}} -> handle_fresh_hitl_response(gen_state, request_id, response)
+      {:ok, %{response: existing}} -> handle_conflicting_hitl_response(gen_state, request_id, existing)
+    end
+  end
 
   # loop: reactive
   @impl GenServer
@@ -255,6 +320,37 @@ defmodule LoanActor.Server do
     end
   end
 
+  # ---- HITL response handling (FT-028) ----
+
+  defp handle_fresh_hitl_response(gen_state, request_id, response) do
+    updated_requests = Map.update!(gen_state.hitl_requests, request_id, &%{&1 | response: response})
+    gen_state = %{gen_state | hitl_requests: updated_requests}
+
+    payload = %{
+      "request_id" => request_id,
+      "decision" => response.decision,
+      "operator_id" => response.operator_id
+    }
+
+    {:ok, _seq} = append_entry(gen_state, :hitl_responded, "system", payload)
+
+    content = %{
+      "decision" => response.decision,
+      "comment" => response.comment,
+      "operator_id" => response.operator_id
+    }
+
+    gen_state = stream_tool_call_result(gen_state, request_id, content)
+    {:reply, :ok, gen_state}
+  end
+
+  defp handle_conflicting_hitl_response(gen_state, request_id, existing_response) do
+    payload = %{"request_id" => request_id, "existing_operator_id" => existing_response.operator_id}
+    {:ok, _seq} = append_entry(gen_state, :approval_conflict, "system", payload)
+    broadcast(gen_state, Encoder.hitl_conflict_event(gen_state.loan_id, request_id))
+    {:reply, {:conflict, existing_response}, gen_state}
+  end
+
   # Centralized so every code path in this module (reactive, heartbeat,
   # tool invocation, planning) automatically broadcasts — no call site can
   # forget to (FT-025).
@@ -321,7 +417,14 @@ defmodule LoanActor.Server do
       })
 
     {:ok, 0} = store.append(loan_id, genesis)
-    %{loan_id: loan_id, state: State.new(%{loan_id: loan_id}), store: store, subscribers: []}
+
+    %{
+      loan_id: loan_id,
+      state: State.new(%{loan_id: loan_id}),
+      store: store,
+      subscribers: [],
+      hitl_requests: %{}
+    }
   end
 
   defp rehydrate(loan_id, store) do
@@ -338,7 +441,7 @@ defmodule LoanActor.Server do
         end
       end)
 
-    %{loan_id: loan_id, state: state, store: store, subscribers: []}
+    %{loan_id: loan_id, state: state, store: store, subscribers: [], hitl_requests: %{}}
   end
 
   defp diary_store, do: Application.get_env(:loan_actor, :diary_store, LoanActor.Diary.Mnesia)
@@ -473,13 +576,14 @@ defmodule LoanActor.Server do
     Enum.reduce(matched, gen_state, fn skill, acc ->
       # Every match is diary-logged regardless of which tool it names —
       # mirrors run_matched_skills/1's (FT-018) established behavior.
-      # request_document is the only tool this loop acts on.
+      # request_document and request_operator_approval (FT-028) are the
+      # only tools this loop acts on.
       acc = log_skill_activated(acc, skill)
 
-      if "request_document" in skill.tools_required do
-        run_request_document(acc)
-      else
-        acc
+      cond do
+        "request_document" in skill.tools_required -> run_request_document(acc)
+        "request_operator_approval" in skill.tools_required -> run_request_operator_approval(acc, skill)
+        true -> acc
       end
     end)
   end
@@ -487,6 +591,19 @@ defmodule LoanActor.Server do
   defp run_request_document(gen_state) do
     doc_type = infer_doc_type(gen_state.state.goals)
     {gen_state, _result} = invoke_tool(gen_state, "request_document", %{"doc_type" => doc_type}, :planning)
+    gen_state
+  end
+
+  # No document specifies a structured source for request_operator_approval's
+  # "prompt"/"options" args (same gap infer_doc_type/1 already documents for
+  # request_document's doc_type) — the skill's own trigger text becomes the
+  # prompt, mirroring the periodic loop's set_goal invocation
+  # (run_skill_set_goal/2); options default to data-model.md's own documented
+  # example (`["approve", "reject"]`), the only options value any contract
+  # names.
+  defp run_request_operator_approval(gen_state, skill) do
+    args = %{"prompt" => skill.description, "options" => ["approve", "reject"]}
+    {gen_state, _result} = invoke_tool(gen_state, "request_operator_approval", args, :planning)
     gen_state
   end
 
@@ -532,18 +649,26 @@ defmodule LoanActor.Server do
         invocation_id: invocation_id
       })
 
-    args_hash =
-      case ToolRegistry.redacted_args(tool_name, args) do
-        {:ok, redacted} -> hash_term_json(redacted)
-        {:error, _reason} -> hash_term_json(%{"rejected" => true})
-      end
+    {redacted_args, args_hash} = redacted_args_and_hash(tool_name, args)
 
     invoked_payload = %{"tool" => tool_name, "invocation_id" => invocation_id, "args_hash" => args_hash}
     {:ok, _seq} = append_entry(gen_state, :tool_invoked, "system", invoked_payload)
 
+    broadcast(gen_state, Encoder.tool_call_start(invocation_id, tool_name, loan_id))
+    broadcast(gen_state, Encoder.tool_call_args(invocation_id, redacted_args))
+    broadcast(gen_state, Encoder.tool_call_end(invocation_id))
+
     result = ToolRegistry.invoke(tool_name, args, ctx)
     gen_state = append_tool_result_entry(gen_state, tool_name, invocation_id, result)
+    gen_state = maybe_stream_tool_result(gen_state, tool_name, invocation_id, redacted_args, result)
     {gen_state, result}
+  end
+
+  defp redacted_args_and_hash(tool_name, args) do
+    case ToolRegistry.redacted_args(tool_name, args) do
+      {:ok, redacted} -> {redacted, hash_term_json(redacted)}
+      {:error, _reason} -> {%{"rejected" => true}, hash_term_json(%{"rejected" => true})}
+    end
   end
 
   defp append_tool_result_entry(gen_state, tool_name, invocation_id, result) do
@@ -570,6 +695,66 @@ defmodule LoanActor.Server do
     gen_state
   end
 
+  # `ToolCallResult` streams immediately for a synchronous result. The one
+  # foundation exception is `request_operator_approval`'s `{:pending, id}` —
+  # its Result is deferred until `respond_hitl/3` (FT-028).
+  defp maybe_stream_tool_result(gen_state, "request_operator_approval", invocation_id, redacted_args, {:pending, request_id}) do
+    request =
+      HITLRequest.new(%{
+        request_id: request_id,
+        loan_id: gen_state.loan_id,
+        prompt: Map.get(redacted_args, "prompt"),
+        options: Map.get(redacted_args, "options"),
+        created_at: DateTime.utc_now()
+      })
+
+    broadcast(gen_state, Encoder.hitl_request_event(gen_state.loan_id, Map.from_struct(request)))
+
+    new_hitl_requests = Map.put(gen_state.hitl_requests, invocation_id, %{request: request, response: nil})
+    %{gen_state | hitl_requests: new_hitl_requests}
+  end
+
+  defp maybe_stream_tool_result(gen_state, _tool_name, _invocation_id, _redacted_args, {:pending, _id}) do
+    gen_state
+  end
+
+  defp maybe_stream_tool_result(gen_state, _tool_name, invocation_id, _redacted_args, {:ok, effects}) do
+    stream_tool_call_result(gen_state, invocation_id, json_safe_effects(effects))
+  end
+
+  defp maybe_stream_tool_result(gen_state, _tool_name, invocation_id, _redacted_args, {:error, reason}) do
+    stream_tool_call_result(gen_state, invocation_id, %{"error" => inspect(reason)})
+  end
+
+  defp stream_tool_call_result(gen_state, tool_call_id, content) do
+    message_id = "msg-#{System.unique_integer([:positive, :monotonic])}"
+    broadcast(gen_state, Encoder.tool_call_result(message_id, tool_call_id, content))
+    gen_state
+  end
+
   defp hash_term(term), do: term |> :erlang.term_to_binary() |> Chain.hash() |> Base.encode16()
   defp hash_term_json(term), do: term |> Jason.encode!() |> Chain.hash() |> Base.encode16()
+
+  # A tool's `{:ok, effects}` map is defined by the contract as JSON-safe
+  # (e.g. `%{transition: event_type}` — an atom value, which Jason already
+  # encodes), with one existing exception: `set_goal`'s `%{add_goal: %Goal{}}`
+  # (FT-043, pre-dating this task's streaming) carries a raw struct. Rather
+  # than deriving Jason.Encoder on a domain struct (this codebase's
+  # established pattern keeps JSON-shaping explicit — see
+  # `AGUI.Encoder`'s own `_as_json` helpers), only the one shape that
+  # actually appears in a foundation tool's effects is converted here.
+  defp json_safe_effects(effects) when is_map(effects) do
+    Map.new(effects, fn {k, v} -> {k, json_safe_value(v)} end)
+  end
+
+  defp json_safe_value(%LoanActor.Goal{} = goal) do
+    %{
+      "goal_id" => goal.goal_id,
+      "description" => goal.description,
+      "status" => Atom.to_string(goal.status),
+      "due_at" => goal.due_at && DateTime.to_iso8601(goal.due_at)
+    }
+  end
+
+  defp json_safe_value(other), do: other
 end

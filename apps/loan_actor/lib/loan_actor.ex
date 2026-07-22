@@ -1,12 +1,12 @@
 defmodule LoanActor do
   @moduledoc """
   Public API for the loan actor (FT-016 supervision + FT-017 reactive
-  loop). This module **is** the surface documented in
-  `contracts/loan-actor-api.md`. `respond_hitl/3` (FT-028) is added by its
-  own later task.
+  loop + FT-028 HITL response). This module **is** the surface documented
+  in `contracts/loan-actor-api.md`.
   """
 
   alias LoanActor.Event
+  alias LoanActor.HITLResponse
   alias LoanActor.Registry
   alias LoanActor.Server
   alias LoanActor.State
@@ -65,6 +65,16 @@ defmodule LoanActor do
     case Registry.whereis(loan_id) do
       nil -> {:error, :not_running}
       pid -> Server.subscribe(pid, opts)
+    end
+  end
+
+  @doc "Deliver the operator's decision for a pending HITL request. See `contracts/loan-actor-api.md`."
+  @spec respond_hitl(String.t(), String.t(), HITLResponse.t()) ::
+          :ok | {:conflict, HITLResponse.t()} | {:error, :not_running} | {:error, :not_found}
+  def respond_hitl(loan_id, request_id, %HITLResponse{} = response) do
+    case Registry.whereis(loan_id) do
+      nil -> {:error, :not_running}
+      pid -> Server.respond_hitl(pid, request_id, response)
     end
   end
 end
