@@ -291,6 +291,27 @@ placeholder, not a real business rule.
 
 ---
 
+## Q16 — Subscriber backpressure signal *(FT-024, 2026-07-21, no answer returned — proceeded with the flagged recommendation)*
+
+**Resolution: `Process.info(self(), :message_queue_len)`** — the Subscriber's OWN Erlang
+process mailbox depth, checked at the start of each `:deliver` cast.
+
+**Rationale.** `research.md` R-2 says resync mode engages when "the subscriber's mailbox
+exceeds the bound", but `send/2` never blocks or reveals whether a receiver is keeping up —
+some concrete signal has to stand in for "mailbox". A clarifying question was raised (two
+options: read `message_queue_len` literally, or invent an explicit ack protocol between
+subscriber and owner) but no answer came back; proceeded with the flagged recommendation
+rather than blocking indefinitely, and recorded here for easy revisit.
+
+**Locked decision.** `message_queue_len` is simple and needs no new protocol, but is
+strictly weaker than an ack-based design: a slow HTTP/SSE *owner* process holding its own
+mailbox full of undelivered `:ag_ui_event` messages does not show up in the *subscriber's*
+mailbox unless the loan actor is also casting in a tight burst. Revisit once FT-027 (the
+HTTP layer, the actual "slow client" scenario) exists and can prove whether this is
+sufficient in practice.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |
