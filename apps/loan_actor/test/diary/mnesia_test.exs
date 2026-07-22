@@ -91,6 +91,62 @@ defmodule LoanActor.Diary.MnesiaTest do
     end
   end
 
+  describe "init/1 — error recovery (extra_applications auto-start scenario)" do
+    test "recovers when Mnesia is running without a disc schema for the current dir" do
+      # Reproduces the exact precondition of a real (non-test) boot bug:
+      # `:mnesia` is listed in mix.exs `extra_applications`, so OTP starts
+      # it automatically before LoanActor.Application ever runs — in its
+      # bare RAM-only default mode, no disc-based schema for this node.
+      # `LoanActor.Server.init/1` calls `store.init([])` with NO :dir, so
+      # nothing was forcing a stop+recreate cycle before this fix; every
+      # OTHER test in this file passes only because it explicitly calls
+      # init(dir: @dir), which happens to trigger that cycle anyway.
+      #
+      # Uses an ISOLATED, never-before-initialized directory (not the
+      # shared @dir every other test in this file depends on): once a
+      # node's disc schema is created for a given directory, it persists
+      # across stop/start within the same test run, so the bug's
+      # precondition can only be reproduced against a genuinely fresh dir.
+      isolated_dir = Factory.unique_tmp_dir("loan_actor_mnesia_recovery")
+
+      :stopped = :mnesia.stop()
+      :ok = :application.set_env(:mnesia, :dir, String.to_charlist(Path.expand(isolated_dir)))
+      :ok = :mnesia.start()
+      assert :mnesia.system_info(:is_running) == :yes
+      refute node() in :mnesia.table_info(:schema, :disc_copies)
+
+      assert :ok = MnesiaStore.init(dir: isolated_dir)
+      assert node() in :mnesia.table_info(:schema, :disc_copies)
+
+      # And the store is genuinely usable afterward, not just "started".
+      loan_id = Factory.unique_loan_id()
+      assert {:ok, 0} = MnesiaStore.append(loan_id, Factory.entry(%{loan_id: loan_id}))
+      assert :ok = MnesiaStore.verify_chain(loan_id)
+
+      # Restore the shared dir (init/1 itself waits for tables) so every
+      # other test in this file/suite is unaffected.
+      assert :ok = MnesiaStore.init(dir: @dir)
+    end
+  end
+
+  describe "init/1 — mnesia_dir config fallback (happy)" do
+    test "init([]) with no :dir falls back to config :loan_actor, :mnesia_dir" do
+      # config.exs/dev.exs declare :mnesia_dir but nothing read it until
+      # this fix — the Server's own boot path (`store.init([])`) always
+      # omits :dir, so this fallback is what makes real (non-test) runs
+      # honor that config at all.
+      previous = Application.get_env(:loan_actor, :mnesia_dir)
+      Application.put_env(:loan_actor, :mnesia_dir, @dir)
+      on_exit(fn -> restore_mnesia_dir(previous) end)
+
+      assert :ok = MnesiaStore.init([])
+      assert :mnesia.system_info(:directory) == String.to_charlist(Path.expand(@dir))
+    end
+  end
+
+  defp restore_mnesia_dir(nil), do: Application.delete_env(:loan_actor, :mnesia_dir)
+  defp restore_mnesia_dir(value), do: Application.put_env(:loan_actor, :mnesia_dir, value)
+
   describe "mix loan_actor.init_mnesia — happy" do
     test "task initializes the store idempotently against the test dir" do
       Mix.shell(Mix.Shell.Process)

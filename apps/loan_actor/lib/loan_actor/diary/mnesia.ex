@@ -160,10 +160,25 @@ defmodule LoanActor.Diary.Mnesia do
 
   # ---- init plumbing ----
 
-  defp ensure_dir(nil), do: :ok
+  # No explicit :dir opt: fall back to `config :loan_actor, :mnesia_dir`
+  # (config.exs/dev.exs declare it, but nothing read it until this fix —
+  # `LoanActor.Server.init/1` always calls `store.init([])`, so this was
+  # the ONLY path that mattered for a real, non-test boot).
+  defp ensure_dir(nil) do
+    case Application.get_env(:loan_actor, :mnesia_dir) do
+      nil -> :ok
+      dir -> ensure_dir(dir)
+    end
+  end
 
   defp ensure_dir(dir) do
-    dir_charlist = String.to_charlist(Path.expand(dir))
+    expanded = Path.expand(dir)
+    # Unlike Diary.File, Mnesia does not create its own directory — a
+    # `create_schema` against a non-existent path fails with :enoent
+    # rather than creating it. Found running a real boot with a fresh
+    # (never-before-created) `mnesia_dir` config path.
+    File.mkdir_p!(expanded)
+    dir_charlist = String.to_charlist(expanded)
 
     if running?() and :mnesia.system_info(:directory) != dir_charlist do
       :stopped = :mnesia.stop()
@@ -174,6 +189,19 @@ defmodule LoanActor.Diary.Mnesia do
   end
 
   defp ensure_schema_and_start do
+    # `:mnesia` is listed in `extra_applications`, so OTP auto-starts it
+    # BEFORE `LoanActor.Application` runs — in its bare RAM-only default
+    # mode, with no disc-based schema for this node. `running?()` alone
+    # can't tell "properly initialized" apart from "auto-started in the
+    # wrong mode"; found the hard way running a real `iex -S mix` boot,
+    # where every existing test passed because each one explicitly calls
+    # `init(dir: <path>)` first, which happens to force exactly this
+    # stop+recreate cycle via `ensure_dir/1` — a path the Server's own
+    # unconfigured `store.init([])` never takes.
+    if running?() and not disc_schema_for_this_node?() do
+      :stopped = :mnesia.stop()
+    end
+
     unless running?() do
       case :mnesia.create_schema([node()]) do
         :ok -> :ok
@@ -187,6 +215,10 @@ defmodule LoanActor.Diary.Mnesia do
     :ok
   catch
     {:schema_error, reason} -> {:error, {:schema_error, reason}}
+  end
+
+  defp disc_schema_for_this_node? do
+    node() in :mnesia.table_info(:schema, :disc_copies)
   end
 
   defp ensure_table do
