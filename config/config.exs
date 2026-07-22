@@ -31,4 +31,18 @@ config :logger, :default_formatter,
   format: "$time [$level] $message $metadata\n",
   metadata: [:loan_id, :sequence, :event_id, :request_id]
 
+# Found via FT-035's load test (NFR-001, 100 concurrent loans / 10
+# events/sec/loan): Mnesia's OTP default (100) triggers "Mnesia is
+# overloaded: {:dump_log, :write_threshold}" well before that write
+# volume, throttling writers hard enough to blow past the 100ms p95
+# budget (observed: a GenServer.call outright timing out at 5s under the
+# full 100-loan profile). Raising the threshold is standard Mnesia
+# tuning for write-heavy workloads — it only changes how often the
+# internal transaction log gets consolidated into the base table files
+# (a throughput/latency tradeoff), not any durability guarantee: a
+# committed write is still durable regardless of this value. Read at
+# Mnesia application startup, so this must be `config`, not
+# `Application.put_env/3` after the fact.
+config :mnesia, dump_log_write_threshold: 50_000
+
 import_config "#{config_env()}.exs"

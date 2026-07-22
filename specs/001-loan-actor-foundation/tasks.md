@@ -47,7 +47,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-026 | DONE | `FT-026/FT-027` commit |
 | FT-027 | DONE | `FT-026/FT-027` commit (HITL route added retroactively by FT-028) |
 | FT-028 | DONE | `FT-028` commit |
-| FT-034 | DONE | this commit |
+| FT-034 | DONE | `FT-034` commit |
+| FT-035 | DONE (SC-001 gap found and documented — see commit) | this commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 
