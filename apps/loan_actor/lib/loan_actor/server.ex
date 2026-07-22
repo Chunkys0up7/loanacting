@@ -427,17 +427,27 @@ defmodule LoanActor.Server do
     }
   end
 
+  # `:heartbeat` diary entries carry no transition (Model.transition_driving_event_types/0
+  # excludes it — a fixed FT-034 bug: it has no legal edge from any status,
+  # so feeding it to State.transition/2 always raised) but DO carry real
+  # information the pre-crash state held: `last_heartbeat_at`. Skipping it
+  # entirely left every restarted actor's `last_heartbeat_at` permanently
+  # `nil`, silently wrong for as long as the loan lives — also fixed here,
+  # from each `:heartbeat` entry's own `timestamp` (the closest available
+  # reconstruction; not byte-identical to the live value, which came from a
+  # separate `DateTime.utc_now()` call a few microseconds apart — no diary
+  # entry stores that exact value, only a hash of the state it was set on).
   defp rehydrate(loan_id, store) do
-    event_types = MapSet.new(Model.event_types())
+    event_types = Model.transition_driving_event_types()
 
     state =
       loan_id
       |> then(&store.stream(&1, []))
       |> Enum.reduce(State.new(%{loan_id: loan_id}), fn entry, acc ->
-        if MapSet.member?(event_types, entry.type) do
-          State.transition(acc, entry.type)
-        else
-          acc
+        cond do
+          MapSet.member?(event_types, entry.type) -> State.transition(acc, entry.type)
+          entry.type == :heartbeat -> State.record_heartbeat(acc, entry.timestamp)
+          true -> acc
         end
       end)
 

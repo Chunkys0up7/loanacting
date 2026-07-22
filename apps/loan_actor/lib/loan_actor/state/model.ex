@@ -83,6 +83,26 @@ defmodule LoanActor.State.Model do
   end
 
   @doc """
+  The subset of `event_types/0` that has a legal edge from AT LEAST ONE
+  status — i.e. an event type that can actually drive `State.transition/2`
+  somewhere. Narrower than `event_types/0`: the four types this
+  moduledoc already documents as having no edge anywhere
+  (`:document_review_requested`, `:heartbeat`, `:goal_abandoned`,
+  `:abort`) are valid `%LoanActor.Event{}` types but never belong in this
+  set. `LoanActor.Server.rehydrate/2` (FT-017, fixed by FT-034's property
+  test) uses this — not `event_types/0` — to decide which diary entries
+  replay through `State.transition/2`: feeding it a type with no edge
+  ANYWHERE always raises `LoanActor.IllegalTransitionError`, and every
+  long-lived loan's diary contains `:heartbeat` entries by the time it
+  first crashes, so using the wrong set here was a real, always-reachable
+  rehydration bug, not a hypothetical one.
+  """
+  @spec transition_driving_event_types() :: MapSet.t(event_type())
+  def transition_driving_event_types do
+    @edges |> Map.keys() |> Enum.map(fn {_status, event_type} -> event_type end) |> MapSet.new()
+  end
+
+  @doc """
   Every documented edge as `{status, event_type, next_status}` — the happy-path
   table property/example tests enumerate.
   """
