@@ -25,6 +25,9 @@ export default tseslint.config(
       // never requires React in scope.
       "react/react-in-jsx-scope": "off",
       "react/prop-types": "off",
+      // Standard convention for an intentionally-discarded destructured
+      // binding (e.g. `const { [key]: _removed, ...rest } = record`).
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
     settings: {
       react: { version: "detect" },

@@ -138,6 +138,74 @@ describe("LoanView", () => {
     expect(container.querySelector("[data-status]")?.getAttribute("data-status")).toBe("complete");
   });
 
+  it("renders a hitl_request CustomEvent as a HitlInterruptCard (happy, FT-033)", () => {
+    act(() => {
+      root.render(<LoanView loanId="L-1" />);
+    });
+
+    act(() => {
+      capturedHandlers?.onEvent({
+        type: "CustomEvent",
+        name: "hitl_request",
+        loan_id: "L-1",
+        request: { request_id: "inv-2", loan_id: "L-1", prompt: "Approve?", options: ["approve", "reject"], created_at: null },
+      });
+    });
+
+    expect(container.textContent).toContain("Approve?");
+    const buttons = Array.from(container.querySelectorAll("button")).map((b) => b.textContent);
+    expect(buttons).toEqual(expect.arrayContaining(["approve", "reject"]));
+  });
+
+  it("removes a pending HITL card once its ToolCallResult arrives (happy, FT-033)", () => {
+    act(() => {
+      root.render(<LoanView loanId="L-1" />);
+    });
+
+    act(() => {
+      capturedHandlers?.onEvent({
+        type: "CustomEvent",
+        name: "hitl_request",
+        loan_id: "L-1",
+        request: { request_id: "inv-2", loan_id: "L-1", prompt: "Approve?", options: ["approve", "reject"], created_at: null },
+      });
+    });
+
+    expect(container.textContent).toContain("Approve?");
+
+    act(() => {
+      capturedHandlers?.onEvent({
+        type: "ToolCallResult",
+        message_id: "msg-1",
+        tool_call_id: "inv-2",
+        content: '{"decision":"approve","operator_id":"alice"}',
+      });
+    });
+
+    expect(container.textContent).toContain("No pending approvals.");
+  });
+
+  it("removes a pending HITL card on a hitl_conflict CustomEvent naming it (boundary, FT-033)", () => {
+    act(() => {
+      root.render(<LoanView loanId="L-1" />);
+    });
+
+    act(() => {
+      capturedHandlers?.onEvent({
+        type: "CustomEvent",
+        name: "hitl_request",
+        loan_id: "L-1",
+        request: { request_id: "inv-2", loan_id: "L-1", prompt: "Approve?", options: ["approve", "reject"], created_at: null },
+      });
+    });
+
+    act(() => {
+      capturedHandlers?.onEvent({ type: "CustomEvent", name: "hitl_conflict", loan_id: "L-1", request_id: "inv-2" });
+    });
+
+    expect(container.textContent).toContain("No pending approvals.");
+  });
+
   it("surfaces an unrecognized event as an alert rather than dropping it (error)", () => {
     act(() => {
       root.render(<LoanView loanId="L-1" />);
