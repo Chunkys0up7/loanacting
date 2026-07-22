@@ -8,6 +8,18 @@ defmodule LoanActor.Server do
   the SAME loan: no other `:send_event` call for this loan can interleave
   (a GenServer serializes its own mailbox).
 
+  **Reactive pipeline throughput (FT-046/047, intent 0005).** The
+  idempotency-check and diary-append used to be three separate Mnesia
+  transactions (`Idempotency.check_and_record/3`, the diary
+  `append/2`, `Idempotency.record_sequence/4`) — `FT-035`'s load test found
+  this misses `NFR-001` at full scale. `apply_event/3` now computes the
+  `State.transition/2` attempt first (pure, side-effect-free — its result is
+  simply discarded on a duplicate) and calls `store.append_with_dedup/4`
+  once, which for the Mnesia backend performs the duplicate-check and the
+  diary write as a single combined transaction (`contracts/diary-store-
+  behaviour.md`). Ordering is otherwise unchanged: PIIGuard still gates
+  `handle_valid_event/2` before any of this runs.
+
   The diary store is configurable via `config :loan_actor, :diary_store`
   (Mnesia in prod/dev, File in test — `config/*.exs`); `init/1` calls the
   configured store's own `init/1` (idempotent per its behaviour contract),
@@ -149,7 +161,6 @@ defmodule LoanActor.Server do
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
   alias LoanActor.HITLRequest
-  alias LoanActor.Idempotency
   alias LoanActor.IllegalTransitionError
   alias LoanActor.PIIGuard
   alias LoanActor.Registry
@@ -281,43 +292,74 @@ defmodule LoanActor.Server do
     {:noreply, %{gen_state | subscribers: new_subscribers}}
   end
 
-  # ---- reactive pipeline: PIIGuard -> idempotency -> transition -> diary ----
+  # ---- reactive pipeline: PIIGuard -> transition-attempt -> combined idempotency+diary (0005) ----
 
   defp handle_valid_event(event, gen_state) do
     case PIIGuard.apply(event.payload) do
       {:error, :pii_violation, paths} -> {:reply, {:error, {:pii_violation, paths}}, gen_state}
-      {:ok, clean_payload, _redacted_paths} -> handle_clean_event(event, clean_payload, gen_state)
-    end
-  end
-
-  defp handle_clean_event(event, clean_payload, gen_state) do
-    case Idempotency.check_and_record(gen_state.loan_id, event.event_id, event.source) do
-      {:duplicate, sequence} -> {:reply, {:duplicate, sequence}, gen_state}
-      :fresh -> apply_event(event, clean_payload, gen_state)
+      {:ok, clean_payload, _redacted_paths} -> apply_event(event, clean_payload, gen_state)
     end
   end
 
   defp apply_event(event, clean_payload, gen_state) do
-    %{loan_id: loan_id, state: state} = gen_state
+    %{loan_id: loan_id, state: state, store: store} = gen_state
+    {outcome, entry_type, actor, payload} = attempt_transition(state, event, clean_payload)
 
-    try do
-      new_state = State.transition(state, event.type)
-      {:ok, sequence} = append_entry(gen_state, event.type, Atom.to_string(event.source), clean_payload)
-      :ok = Idempotency.record_sequence(loan_id, event.event_id, event.source, sequence)
-      broadcast_state_delta(gen_state, new_state)
-      maybe_trigger_planning(event.type)
-      {:reply, {:ok, sequence}, %{gen_state | state: new_state}}
-    rescue
-      e in IllegalTransitionError ->
-        payload = %{
-          "attempted_event_type" => Atom.to_string(e.event_type),
-          "from_status" => Atom.to_string(e.from)
-        }
+    entry_builder = fn tail -> build_entry(loan_id, tail, entry_type, actor, payload) end
 
-        {:ok, sequence} = append_entry(gen_state, :illegal_transition_attempted, "system", payload)
-        :ok = Idempotency.record_sequence(loan_id, event.event_id, event.source, sequence)
-        {:reply, {:error, {:illegal_transition, e.from, e.event_type}}, gen_state}
+    case store.append_with_dedup(loan_id, event.event_id, event.source, entry_builder) do
+      {:duplicate, sequence} ->
+        {:reply, {:duplicate, sequence}, gen_state}
+
+      {:fresh, sequence, entry} ->
+        broadcast(gen_state, Encoder.diary_entry_event(loan_id, entry))
+        finish_fresh_event(outcome, sequence, event.type, gen_state)
     end
+  end
+
+  # Pure (no I/O) — safe to run before duplicate-detection since its result
+  # is simply discarded on the eventual :duplicate branch (see moduledoc).
+  defp attempt_transition(state, event, clean_payload) do
+    new_state = State.transition(state, event.type)
+    {{:ok, new_state}, event.type, Atom.to_string(event.source), clean_payload}
+  rescue
+    e in IllegalTransitionError ->
+      payload = %{
+        "attempted_event_type" => Atom.to_string(e.event_type),
+        "from_status" => Atom.to_string(e.from)
+      }
+
+      {{:error, {:illegal_transition, e.from, e.event_type}}, :illegal_transition_attempted, "system", payload}
+  end
+
+  defp build_entry(loan_id, nil, type, actor, payload) do
+    build_entry(loan_id, 0, Entry.genesis_prev_hash(), type, actor, payload)
+  end
+
+  defp build_entry(loan_id, %Entry{} = tail, type, actor, payload) do
+    build_entry(loan_id, tail.sequence + 1, Chain.next_prev_hash(tail), type, actor, payload)
+  end
+
+  defp build_entry(loan_id, sequence, prev_hash, type, actor, payload) do
+    Entry.new(%{
+      loan_id: loan_id,
+      sequence: sequence,
+      timestamp: DateTime.utc_now(),
+      type: type,
+      actor: actor,
+      payload_hash: Chain.hash(Jason.encode!(payload)),
+      prev_hash: prev_hash
+    })
+  end
+
+  defp finish_fresh_event({:ok, new_state}, sequence, event_type, gen_state) do
+    broadcast_state_delta(gen_state, new_state)
+    maybe_trigger_planning(event_type)
+    {:reply, {:ok, sequence}, %{gen_state | state: new_state}}
+  end
+
+  defp finish_fresh_event({:error, reason}, _sequence, _event_type, gen_state) do
+    {:reply, {:error, reason}, gen_state}
   end
 
   # ---- HITL response handling (FT-028) ----
