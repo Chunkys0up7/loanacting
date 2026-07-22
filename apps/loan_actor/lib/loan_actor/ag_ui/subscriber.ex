@@ -36,7 +36,16 @@ defmodule LoanActor.AGUI.Subscriber do
   resync mode.
   """
 
-  use GenServer
+  # :temporary, not the default :permanent — this process stops itself
+  # (:normal) when its owner dies, and a :permanent child gets restarted
+  # regardless of exit reason. Restarting would re-monitor the SAME now-dead
+  # owner, get an immediate new :DOWN, stop again, restart again — an
+  # infinite loop that exceeds the DynamicSupervisor's restart intensity,
+  # which can then exceed the ROOT supervisor's too, taking down sibling
+  # children (LoanActor.Registry included). Found the hard way: this exact
+  # cascade broke "unknown registry: LoanActor.Registry" in unrelated test
+  # files whenever this file's owner-death test ran first.
+  use GenServer, restart: :temporary
 
   @default_max_queue 128
 

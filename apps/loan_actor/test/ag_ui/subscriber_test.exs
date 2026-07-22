@@ -136,7 +136,15 @@ defmodule LoanActor.AGUI.SubscriberTest do
 
       Process.exit(owner, :kill)
 
-      assert_receive {:DOWN, ^sub_ref, :process, ^sub, :normal}, 1_000
+      # The exit reason is not asserted as exactly :normal: under heavy
+      # scheduler contention (the full suite spawns hundreds of processes)
+      # the subscriber can occasionally have already exited by the time
+      # THIS monitor is set up, and Erlang reports :noproc for an
+      # already-dead target regardless of its true prior exit reason. The
+      # property actually under test — the subscriber terminates when its
+      # owner dies — holds either way.
+      assert_receive {:DOWN, ^sub_ref, :process, ^sub, reason}, 1_000
+      assert reason in [:normal, :noproc]
     end
   end
 

@@ -74,10 +74,38 @@ defmodule LoanActor.Server do
   outbound request, not a state mutation) — SC-012 asks only for the
   tool's own diary pair and AG-UI sequence, no extra effect-application
   diary entry.
+
+  ## Subscribe (FT-025)
+
+  `subscribe/2` starts a supervised `LoanActor.AGUI.Subscriber`
+  (`LoanActor.AGUI.Stream`, FT-024) delivering to the calling process, and
+  registers it in `gen_state.subscribers` (a `{monitor_ref, subscriber_pid}`
+  list). The loan actor **broadcasts on every diary append** — `append_entry/4`
+  is the single, centralized call site every code path in this module
+  already funnels through, so every diary entry (reactive, heartbeat, tool
+  invocation, planning) automatically reaches every current subscriber as a
+  `CustomEvent diary_entry`, with no risk of a call site forgetting to
+  broadcast. A successful reactive `State.transition/2` additionally
+  broadcasts a `StateDelta` — per the AG-UI ordering guarantee, always
+  immediately after that transition's own `CustomEvent diary_entry`.
+
+  **StateDelta scope note**: the patch is a single whole-state `"replace"`
+  operation at the root path, not a computed incremental diff. This is a
+  valid RFC 6902 JSON Patch array (the contract does not mandate minimal
+  patches) and avoids building a full diffing algorithm not asked for by
+  this task; a real diff is a defensible later refinement, not a breaking
+  change (consumers already handle arbitrary patch arrays per RFC 6902).
+
+  If a subscribing process dies, `handle_info({:DOWN, ref, :process, _pid,
+  _reason}, _)` removes it from `gen_state.subscribers` — a dead
+  subscriber is never broadcast to again.
   """
 
   use GenServer
 
+  alias LoanActor.AGUI.Encoder
+  alias LoanActor.AGUI.Stream, as: AGUIStream
+  alias LoanActor.AGUI.Subscriber
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
@@ -111,6 +139,16 @@ defmodule LoanActor.Server do
   @spec state(pid()) :: State.t()
   def state(pid), do: GenServer.call(pid, :state)
 
+  @doc """
+  Subscribe the calling process to `pid`'s AG-UI event stream. See
+  `contracts/loan-actor-api.md`: returns a monitor ref; the caller
+  receives `{:ag_ui_event, ref, event}` messages.
+  """
+  @spec subscribe(pid(), keyword()) :: {:ok, reference()} | {:error, term()}
+  def subscribe(pid, opts \\ []) do
+    GenServer.call(pid, {:subscribe, self(), opts})
+  end
+
   # ---- GenServer callbacks ----
 
   @impl GenServer
@@ -143,6 +181,22 @@ defmodule LoanActor.Server do
   @impl GenServer
   def handle_call(:state, _from, gen_state), do: {:reply, gen_state.state, gen_state}
 
+  # loop: reactive
+  @impl GenServer
+  def handle_call({:subscribe, caller, opts}, _from, gen_state) do
+    ref = Process.monitor(caller)
+
+    case AGUIStream.start_subscriber(caller, ref, opts) do
+      {:ok, subscriber_pid} ->
+        new_subscribers = [{ref, subscriber_pid} | gen_state.subscribers]
+        {:reply, {:ok, ref}, %{gen_state | subscribers: new_subscribers}}
+
+      {:error, reason} ->
+        Process.demonitor(ref, [:flush])
+        {:reply, {:error, reason}, gen_state}
+    end
+  end
+
   # loop: periodic
   @impl GenServer
   def handle_info(:heartbeat, gen_state) do
@@ -153,6 +207,13 @@ defmodule LoanActor.Server do
   @impl GenServer
   def handle_info(:plan, gen_state) do
     {:noreply, run_planning(gen_state)}
+  end
+
+  # loop: reactive
+  @impl GenServer
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, gen_state) do
+    new_subscribers = Enum.reject(gen_state.subscribers, fn {sub_ref, _pid} -> sub_ref == ref end)
+    {:noreply, %{gen_state | subscribers: new_subscribers}}
   end
 
   # ---- reactive pipeline: PIIGuard -> idempotency -> transition -> diary ----
@@ -172,12 +233,13 @@ defmodule LoanActor.Server do
   end
 
   defp apply_event(event, clean_payload, gen_state) do
-    %{loan_id: loan_id, state: state, store: store} = gen_state
+    %{loan_id: loan_id, state: state} = gen_state
 
     try do
       new_state = State.transition(state, event.type)
-      {:ok, sequence} = append_entry(store, loan_id, event.type, Atom.to_string(event.source), clean_payload)
+      {:ok, sequence} = append_entry(gen_state, event.type, Atom.to_string(event.source), clean_payload)
       :ok = Idempotency.record_sequence(loan_id, event.event_id, event.source, sequence)
+      broadcast_state_delta(gen_state, new_state)
       maybe_trigger_planning(event.type)
       {:reply, {:ok, sequence}, %{gen_state | state: new_state}}
     rescue
@@ -187,13 +249,17 @@ defmodule LoanActor.Server do
           "from_status" => Atom.to_string(e.from)
         }
 
-        {:ok, sequence} = append_entry(store, loan_id, :illegal_transition_attempted, "system", payload)
+        {:ok, sequence} = append_entry(gen_state, :illegal_transition_attempted, "system", payload)
         :ok = Idempotency.record_sequence(loan_id, event.event_id, event.source, sequence)
         {:reply, {:error, {:illegal_transition, e.from, e.event_type}}, gen_state}
     end
   end
 
-  defp append_entry(store, loan_id, type, actor, payload) do
+  # Centralized so every code path in this module (reactive, heartbeat,
+  # tool invocation, planning) automatically broadcasts — no call site can
+  # forget to (FT-025).
+  defp append_entry(gen_state, type, actor, payload) do
+    %{loan_id: loan_id, store: store} = gen_state
     {:ok, tail} = store.tail(loan_id)
 
     entry =
@@ -207,7 +273,32 @@ defmodule LoanActor.Server do
         prev_hash: Chain.next_prev_hash(tail)
       })
 
-    store.append(loan_id, entry)
+    case store.append(loan_id, entry) do
+      {:ok, sequence} ->
+        broadcast(gen_state, Encoder.diary_entry_event(loan_id, entry))
+        {:ok, sequence}
+
+      error ->
+        error
+    end
+  end
+
+  defp broadcast(gen_state, event) do
+    Enum.each(gen_state.subscribers, fn {_ref, subscriber_pid} ->
+      Subscriber.deliver(subscriber_pid, event)
+    end)
+  end
+
+  defp broadcast_state_delta(gen_state, state) do
+    patch = [%{"op" => "replace", "path" => "", "value" => encoder_state_value(state)}]
+    broadcast(gen_state, Encoder.state_delta(gen_state.loan_id, patch))
+  end
+
+  # Encoder.state_delta/2 takes the patch array directly — reuse
+  # state_snapshot/2's own "state" sub-shape by round-tripping through it,
+  # rather than duplicating the struct -> JSON-safe-map logic here.
+  defp encoder_state_value(state) do
+    Encoder.state_snapshot("_", state)["state"]
   end
 
   # ---- boot / rehydration ----
@@ -230,7 +321,7 @@ defmodule LoanActor.Server do
       })
 
     {:ok, 0} = store.append(loan_id, genesis)
-    %{loan_id: loan_id, state: State.new(%{loan_id: loan_id}), store: store}
+    %{loan_id: loan_id, state: State.new(%{loan_id: loan_id}), store: store, subscribers: []}
   end
 
   defp rehydrate(loan_id, store) do
@@ -247,7 +338,7 @@ defmodule LoanActor.Server do
         end
       end)
 
-    %{loan_id: loan_id, state: state, store: store}
+    %{loan_id: loan_id, state: state, store: store, subscribers: []}
   end
 
   defp diary_store, do: Application.get_env(:loan_actor, :diary_store, LoanActor.Diary.Mnesia)
@@ -265,9 +356,8 @@ defmodule LoanActor.Server do
   end
 
   defp log_heartbeat_entry(gen_state) do
-    %{loan_id: loan_id, state: state, store: store} = gen_state
-    payload = %{"state_hash" => hash_term(state)}
-    {:ok, _seq} = append_entry(store, loan_id, :heartbeat, "system", payload)
+    payload = %{"state_hash" => hash_term(gen_state.state)}
+    {:ok, _seq} = append_entry(gen_state, :heartbeat, "system", payload)
     gen_state
   end
 
@@ -294,7 +384,7 @@ defmodule LoanActor.Server do
         {:error, reason} -> %{"result" => "error", "reason" => inspect(reason)}
       end
 
-    {:ok, _seq} = append_entry(store, loan_id, :diary_chain_verified, "system", payload)
+    {:ok, _seq} = append_entry(gen_state, :diary_chain_verified, "system", payload)
     gen_state
   end
 
@@ -315,15 +405,13 @@ defmodule LoanActor.Server do
   end
 
   defp log_skill_activated(gen_state, skill) do
-    %{loan_id: loan_id, store: store} = gen_state
-
     payload = %{
       "skill_id" => skill.id,
       "version" => skill.version,
       "trigger_hash" => hash_term_json(skill.description)
     }
 
-    {:ok, _seq} = append_entry(store, loan_id, :skill_activated, "system", payload)
+    {:ok, _seq} = append_entry(gen_state, :skill_activated, "system", payload)
     gen_state
   end
 
@@ -338,11 +426,10 @@ defmodule LoanActor.Server do
   end
 
   defp apply_add_goal(gen_state, goal) do
-    %{loan_id: loan_id, store: store} = gen_state
     new_state = State.add_goal(gen_state.state, goal)
 
     payload = %{"goal_id" => goal.goal_id, "description" => goal.description}
-    {:ok, _seq} = append_entry(store, loan_id, :goal_set, "system", payload)
+    {:ok, _seq} = append_entry(gen_state, :goal_set, "system", payload)
 
     %{gen_state | state: new_state}
   end
@@ -433,7 +520,7 @@ defmodule LoanActor.Server do
   # ---- generic tool invocation (constitution Principle VIII) ----
 
   defp invoke_tool(gen_state, tool_name, args, loop) do
-    %{loan_id: loan_id, state: state, store: store} = gen_state
+    %{loan_id: loan_id, state: state} = gen_state
     invocation_id = "inv-#{System.unique_integer([:positive, :monotonic])}"
 
     ctx =
@@ -452,7 +539,7 @@ defmodule LoanActor.Server do
       end
 
     invoked_payload = %{"tool" => tool_name, "invocation_id" => invocation_id, "args_hash" => args_hash}
-    {:ok, _seq} = append_entry(store, loan_id, :tool_invoked, "system", invoked_payload)
+    {:ok, _seq} = append_entry(gen_state, :tool_invoked, "system", invoked_payload)
 
     result = ToolRegistry.invoke(tool_name, args, ctx)
     gen_state = append_tool_result_entry(gen_state, tool_name, invocation_id, result)
@@ -460,8 +547,6 @@ defmodule LoanActor.Server do
   end
 
   defp append_tool_result_entry(gen_state, tool_name, invocation_id, result) do
-    %{loan_id: loan_id, store: store} = gen_state
-
     {type, payload} =
       case result do
         {:ok, effects} ->
@@ -481,7 +566,7 @@ defmodule LoanActor.Server do
           {:tool_failed, %{"tool" => tool_name, "invocation_id" => invocation_id, "reason" => inspect(reason)}}
       end
 
-    {:ok, _seq} = append_entry(store, loan_id, type, "system", payload)
+    {:ok, _seq} = append_entry(gen_state, type, "system", payload)
     gen_state
   end
 

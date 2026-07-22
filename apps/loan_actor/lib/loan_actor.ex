@@ -2,8 +2,8 @@ defmodule LoanActor do
   @moduledoc """
   Public API for the loan actor (FT-016 supervision + FT-017 reactive
   loop). This module **is** the surface documented in
-  `contracts/loan-actor-api.md`. `subscribe/2` (FT-024/025) and
-  `respond_hitl/3` (FT-028) are added by their own later tasks.
+  `contracts/loan-actor-api.md`. `respond_hitl/3` (FT-028) is added by its
+  own later task.
   """
 
   alias LoanActor.Event
@@ -56,6 +56,15 @@ defmodule LoanActor do
     case Registry.whereis(loan_id) do
       nil -> {:error, :not_running}
       pid -> {:ok, Server.state(pid)}
+    end
+  end
+
+  @doc "Subscribe to `loan_id`'s AG-UI event stream. See `contracts/loan-actor-api.md`."
+  @spec subscribe(String.t(), keyword()) :: {:ok, reference()} | {:error, term()}
+  def subscribe(loan_id, opts \\ []) do
+    case Registry.whereis(loan_id) do
+      nil -> {:error, :not_running}
+      pid -> Server.subscribe(pid, opts)
     end
   end
 end
