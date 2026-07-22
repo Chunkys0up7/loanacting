@@ -335,6 +335,28 @@ defmodule LoanActor.Factory do
     ]
   end
 
+  # ---- HITL request factory (FT-023; no %HITLRequest{} struct exists yet — FT-028) ----
+
+  @doc """
+  Plain map matching data-model.md's `%HITLRequest{}` fields
+  (`request_id`, `loan_id`, `prompt`, `options`, `created_at`) — used by
+  `AGUI.Encoder.hitl_request_event/2` ahead of FT-028 building the real
+  struct.
+  """
+  @spec hitl_request_attrs(map() | keyword()) :: map()
+  def hitl_request_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        request_id: "HITL-#{System.unique_integer([:positive, :monotonic])}",
+        loan_id: unique_loan_id(),
+        prompt: "Approve the ambiguous document?",
+        options: ["approve", "reject"],
+        created_at: default_timestamp()
+      },
+      Map.new(overrides)
+    )
+  end
+
   # ---- Tool factories (FT-041; extended by FT-037) ----
   #
   # Discovery checklist: schema source of truth is contracts/tool-behaviour.md
