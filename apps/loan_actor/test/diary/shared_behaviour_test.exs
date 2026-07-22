@@ -27,8 +27,7 @@ defmodule LoanActor.Diary.SharedBehaviourTest do
           read_range: 3,
           stream: 2,
           verify_chain: 1,
-          wipe: 1,
-          append_with_dedup: 4
+          wipe: 1
         )
 
       actual = MapSet.new(Store.behaviour_info(:callbacks))

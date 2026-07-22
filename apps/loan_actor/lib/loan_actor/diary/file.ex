@@ -28,7 +28,6 @@ defmodule LoanActor.Diary.File do
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Diary.Store
-  alias LoanActor.Idempotency
 
   @tail_scan_chunk 4096
 
@@ -52,31 +51,6 @@ defmodule LoanActor.Diary.File do
       locked(loan_id, fn -> do_append(loan_id, entry) end)
     else
       {:error, :loan_id_mismatch}
-    end
-  end
-
-  @impl Store
-  def append_with_dedup(loan_id, event_id, source, entry_builder) when is_function(entry_builder, 1) do
-    # No Mnesia transaction of File's own to fold the dedup check into
-    # (`loan_idem` is Mnesia-backed regardless of diary backend, per
-    # data-model.md) — keeps the pre-0005 two-call shape internally. File is
-    # a test-only backend; NFR-001 is measured against Mnesia specifically.
-    case Idempotency.check_and_record(loan_id, event_id, source) do
-      {:duplicate, sequence} ->
-        {:duplicate, sequence}
-
-      :fresh ->
-        {:ok, tail} = tail(loan_id)
-        entry = entry_builder.(tail)
-
-        case append(loan_id, entry) do
-          {:ok, sequence} ->
-            :ok = Idempotency.record_sequence(loan_id, event_id, source, sequence)
-            {:fresh, sequence, entry}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
     end
   end
 

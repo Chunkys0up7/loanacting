@@ -29,18 +29,6 @@ defmodule LoanActor.Idempotency do
   unreachable) that neither `data-model.md` nor `tasks.md` addresses;
   building compensating-transaction logic for it would be invention beyond
   what was asked.
-
-  **`Diary.File` only, as of intent 0005.** `check_and_record/3` and
-  `record_sequence/4` above are no longer called directly by `Server` — the
-  reactive path now goes through `LoanActor.Diary.Store.append_with_dedup/4`
-  (`contracts/diary-store-behaviour.md`), which for the Mnesia backend
-  (`LoanActor.Diary.Mnesia`) uses `txn_check/3` + `txn_record/4` below inside
-  one combined transaction instead, closing this known limitation for that
-  path (an all-or-nothing transaction never leaves a partial reservation
-  behind). `Diary.File` has no Mnesia transaction of its own to fold the
-  dedup check into, so it still uses the two-phase functions above exactly
-  as before — this known limitation remains accepted for that (test-only)
-  backend.
   """
 
   @table :loan_idem
@@ -94,37 +82,5 @@ defmodule LoanActor.Idempotency do
       end)
 
     :ok
-  end
-
-  @doc """
-  Transaction-scoped duplicate check for `{loan_id, event_id, source}` (0005,
-  `contracts/diary-store-behaviour.md`'s `append_with_dedup/4`). MUST be
-  called from inside an already-open `:mnesia.transaction/1` — unlike
-  `check_and_record/3`, this performs no transaction management of its own
-  and does not reserve the key; the caller is expected to write the winning
-  diary entry and call `txn_record/4` before the transaction commits.
-  """
-  @spec txn_check(String.t(), String.t(), atom()) :: :fresh | {:duplicate, non_neg_integer()}
-  def txn_check(loan_id, event_id, source) do
-    key = {loan_id, event_id, source}
-
-    case :mnesia.read(@table, key) do
-      [] -> :fresh
-      [{@table, ^key, {_received_at, sequence}}] -> {:duplicate, sequence}
-    end
-  end
-
-  @doc """
-  Transaction-scoped record of the winning `sequence` for `{loan_id,
-  event_id, source}` (0005). MUST be called from inside the same transaction
-  as the `txn_check/3` call that returned `:fresh` for this key — writes the
-  final `{received_at, sequence}` directly (no separate reservation phase;
-  the surrounding transaction's atomicity is what makes this indivisible
-  from the diary write it accompanies).
-  """
-  @spec txn_record(String.t(), String.t(), atom(), non_neg_integer()) :: :ok
-  def txn_record(loan_id, event_id, source, sequence) do
-    key = {loan_id, event_id, source}
-    :ok = :mnesia.write({@table, key, {DateTime.utc_now(), sequence}})
   end
 end

@@ -32,7 +32,6 @@ defmodule LoanActor.Diary.StoreSharedTests do
       use ExUnit.Case, async: false
       use ExUnitProperties
 
-      alias LoanActor.Diary.Chain
       alias LoanActor.Diary.Entry
       alias LoanActor.Factory
 
@@ -45,8 +44,6 @@ defmodule LoanActor.Diary.StoreSharedTests do
         :ok = @store.init(store_opts())
         :ok
       end
-
-      defp unique_event_id, do: "EVT-#{System.unique_integer([:positive, :monotonic])}"
 
       defp seed_chain(n) do
         loan_id = Factory.unique_loan_id()
@@ -217,92 +214,6 @@ defmodule LoanActor.Diary.StoreSharedTests do
           fresh = Factory.entry(%{loan_id: loan_id})
           assert {:ok, 0} = @store.append(loan_id, fresh)
           assert :ok = @store.verify_chain(loan_id)
-        end
-      end
-
-      # append_with_dedup/4 (FT-046, intent 0005) — collapses the reactive
-      # pipeline's duplicate-detection with the diary append it gates. See
-      # contracts/diary-store-behaviour.md invariant 6 and
-      # specs/001-loan-actor-foundation/clarifications.md Q17. This suite
-      # REPLACES the standalone Idempotency-level race test FT-015 added
-      # (test/idempotency_test.exs) rather than duplicating it.
-      describe "#{inspect(@store)} — append_with_dedup/4 (0005)" do
-        test "a fresh event appends the entry and returns {:fresh, sequence, entry}" do
-          loan_id = Factory.unique_loan_id()
-          builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
-
-          assert {:fresh, 0, entry} = @store.append_with_dedup(loan_id, unique_event_id(), :test, builder)
-          assert entry.sequence == 0
-          assert {:ok, ^entry} = @store.tail(loan_id)
-        end
-
-        test "entry_builder receives the real tail for a second event on the same loan (not just genesis)" do
-          loan_id = Factory.unique_loan_id()
-          builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
-
-          assert {:fresh, 0, first} = @store.append_with_dedup(loan_id, unique_event_id(), :test, builder)
-          assert {:fresh, 1, second} = @store.append_with_dedup(loan_id, unique_event_id(), :test, builder)
-          assert second.prev_hash == Chain.next_prev_hash(first)
-        end
-
-        test "re-delivering the same key is {:duplicate, sequence} with zero additional diary writes" do
-          loan_id = Factory.unique_loan_id()
-          event_id = unique_event_id()
-          builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
-
-          assert {:fresh, 0, _entry} = @store.append_with_dedup(loan_id, event_id, :test, builder)
-          assert {:duplicate, 0} = @store.append_with_dedup(loan_id, event_id, :test, builder)
-          assert {:duplicate, 0} = @store.append_with_dedup(loan_id, event_id, :test, builder)
-
-          assert length(Enum.to_list(@store.stream(loan_id, []))) == 1
-        end
-
-        test "the same event_id from a different source is a distinct key" do
-          loan_id = Factory.unique_loan_id()
-          event_id = unique_event_id()
-          builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
-
-          assert {:fresh, 0, _} = @store.append_with_dedup(loan_id, event_id, :operator, builder)
-          assert {:fresh, 1, _} = @store.append_with_dedup(loan_id, event_id, :system, builder)
-        end
-
-        test "a bad prev_hash from entry_builder aborts the write — no diary entry appears" do
-          loan_id = Factory.unique_loan_id()
-          event_id = unique_event_id()
-          bad_builder = fn _tail -> Factory.entry(%{loan_id: loan_id, sequence: 0, prev_hash: <<1::256>>}) end
-
-          assert {:error, _reason} = @store.append_with_dedup(loan_id, event_id, :test, bad_builder)
-          # Atomicity (contract invariant 2/6): the failed write left no
-          # diary entry behind, regardless of implementation. Whether the
-          # idempotency side also leaves no trace (true for `Diary.Mnesia`'s
-          # combined transaction; NOT guaranteed for `Diary.File`, which
-          # keeps the old two-phase design's accepted known limitation for
-          # this exact scenario) is implementation-specific — see
-          # `LoanActor.Diary.MnesiaTest`'s own stronger assertion of this.
-          assert {:ok, nil} = @store.tail(loan_id)
-        end
-
-        test "10 concurrent callers racing the same key: exactly one :fresh winner, rest are duplicates" do
-          loan_id = Factory.unique_loan_id()
-          event_id = unique_event_id()
-          builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
-
-          results =
-            1..10
-            |> Task.async_stream(fn _ -> @store.append_with_dedup(loan_id, event_id, :test, builder) end,
-              max_concurrency: 10
-            )
-            |> Enum.map(fn {:ok, result} -> result end)
-
-          assert Enum.count(results, &match?({:fresh, _, _}, &1)) == 1
-          # Losers all report :duplicate. The exact sequence they see may
-          # legitimately be `nil` rather than the winner's final sequence —
-          # `Diary.File`'s two-phase check keeps a transient window where the
-          # key is reserved but not yet filled (its accepted, documented
-          # limitation); `Diary.Mnesia`'s combined transaction closes that
-          # window (see `MnesiaTest`'s stronger assertion of this).
-          assert Enum.count(results, &match?({:duplicate, _}, &1)) == 9
-          assert length(Enum.to_list(@store.stream(loan_id, []))) == 1
         end
       end
     end

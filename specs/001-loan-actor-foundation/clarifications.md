@@ -376,25 +376,15 @@ declaring victory on transaction-count reduction alone.
   preserving `NFR-005`'s "switching requires zero changes outside the implementation module."
 - `LoanActor.Server`'s reactive path (`handle_clean_event`/`apply_event`) calls
   `store.append_with_dedup/4` once per event instead of separately calling
-  `Idempotency.check_and_record/3`, `append_entry/4`, and `Idempotency.record_sequence/4`
-  directly. `State.transition/2` (pure, no I/O, verified side-effect-free) now runs before
-  the storage call rather than after a separate dedup check — harmless, since its result is
-  simply discarded on the `:duplicate` branch, and it saves the duplicate case a full Mnesia
-  round-trip it used to pay for.
-- **Correction (found during `/speckit-implement`, FT-046/047).** `LoanActor.Idempotency`'s
-  existing public API (`check_and_record/3` + `record_sequence/4`, each self-wrapping its own
-  `:mnesia.transaction/1`) is **not** retired — `Diary.File.append_with_dedup/4` still needs
-  it, since `File` has no Mnesia transaction of its own to fold the dedup check into
-  (`loan_idem` stays Mnesia-backed regardless of diary backend). It is unchanged and simply
-  gets a new caller (`Diary.File` instead of `Server` directly). New transaction-scoped
-  siblings — `txn_check/3` and `txn_record/4`, which assume they're called from inside an
-  already-open transaction and do no transaction management of their own — are *added* for
-  `Diary.Mnesia`'s combined-transaction path. Nothing about the composite-key concept or
-  `{:duplicate, sequence}` semantics changes for either.
+  `Idempotency.check_and_record/3`, `append_entry/4`, and `Idempotency.record_sequence/4`.
+  `State.transition/2` (pure, no I/O) still runs before the storage call, exactly as today,
+  to determine which entry type/payload the builder function writes on the fresh path.
+- `LoanActor.Idempotency`'s two-phase public API (`check_and_record/3` + `record_sequence/4`)
+  is retired in favor of transaction-scoped helper functions consumed only by
+  `Diary.Mnesia`'s new combined-transaction code path; the composite-key concept and
+  `{:duplicate, sequence}` semantics move with it, unchanged.
 - The existing race test proving exactly-one-`:fresh`-winner under concurrent duplicate
-  delivery (`FT-015`) is re-verified against the new single-transaction shape, not dropped —
-  it moves to the shared `DiaryStore` behaviour suite (FT-046), parameterized across both
-  implementations, superseding the standalone `Idempotency`-level race test.
+  delivery (`FT-015`) is re-verified against the new single-transaction shape, not dropped.
 
 ---
 
