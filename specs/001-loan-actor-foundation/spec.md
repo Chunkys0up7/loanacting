@@ -10,7 +10,7 @@
 
 **Amended**: 2026-07-21 by intent [`0004-amend-agent-functions-tools-skills`](../../intents/0004-amend-agent-functions-tools-skills.md) — agent functions are tools + skills (FR-016..018, SC-013/014; FR-007 + SC-012 rewritten; `Procedure` entity superseded by `ToolSpec` + `Skill`).
 
-**Amended**: 2026-07-22 by intent [`0005-amend-reactive-pipeline-throughput`](../../intents/0005-amend-reactive-pipeline-throughput.md) — reactive pipeline throughput (FR-019 added; NFR-001 gap found by `FT-035`'s load test being closed; SC-015 added).
+**Amended**: 2026-07-22 by intent [`0005-amend-reactive-pipeline-throughput`](../../intents/0005-amend-reactive-pipeline-throughput.md) — reactive pipeline throughput (FR-019, SC-015 added as requirements). **The attempted fix (FT-046/FT-047) was implemented, load-tested, and reverted as a regression — NFR-001's gap remains open; see `clarifications.md` Q17 Addendum 2.**
 
 **Constitution**: [`v1.2.0`](../../.specify/memory/constitution.md)
 

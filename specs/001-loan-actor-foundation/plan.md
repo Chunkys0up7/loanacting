@@ -219,8 +219,19 @@ Tasks will be sequenced under these tracks (ordering enforced by dependencies de
 
 ## Reactive pipeline throughput design *(0005)*
 
+**Outcome: implemented, load-tested, reverted.** The design below was built (`FT-046`/`FT-047`)
+and passed every test/lint/type gate, but `FT-048`'s load-test re-run showed it is a
+**regression**: worse p95 latency at every scale tested (300 ms at 20 loans vs. the pre-0005
+code's 95 ms passing there), and outright `GenServer.call` timeouts at full 100-loan scale
+(worse than the pre-0005 code's 496 ms — over-budget, but at least responsive). Both `FT-046`
+and `FT-047` were reverted; the code below is **not** what's in the tree. Left in place as a
+record of what was tried and why it didn't work — see `clarifications.md` Q17 Addendum 2 for
+the measured evidence and root-cause hypothesis (combining two tables into one transaction
+traded fewer-but-longer lock-holds for more Mnesia validation conflicts under ~100-way
+concurrent writers — transaction *count* was the wrong thing to optimize).
+
 `FT-035`'s load test found `NFR-001` does not hold at full `SC-001` scale — see
-`clarifications.md` Q17 for the full option analysis. The adopted design:
+`clarifications.md` Q17 for the full option analysis. The design that was attempted and reverted:
 
 - **New behaviour callback**: `DiaryStore.append_with_dedup(loan_id, event_id, source,
   entry_builder)`, `entry_builder :: (tail :: entry | nil -> entry)`. Returns `{:fresh,
@@ -262,7 +273,7 @@ Driven by `tasks.md`. Tests are committed alongside (or before) the code they ex
 | Frontend coupling to AG-UI implementation drift | Cross-stack contract test pins event shapes against `contracts/ag-ui-events.md`. |
 | Operator-id stub leaks into production | Production builds set `:require_operator_id` to `true`; the stub-only branch is excluded by `Mix.env() == :prod`. |
 | Umbrella complexity for a small team | Documented in quickstart; revisit if the umbrella becomes a hindrance — splitting to two repos is a later intent, not an emergency. |
-| Collapsing transactions (0005) doesn't fully close the NFR-001 gap | `FT-035`'s re-run (SC-015) is the hard gate; if it doesn't clear, escalate to Q17's deferred Q3 (batching) or Q4 (further Mnesia tuning) as a follow-up amendment rather than declaring the fix done. |
+| Collapsing transactions (0005) doesn't fully close the NFR-001 gap | **Realized, worse than anticipated**: `FT-035`'s re-run (SC-015) showed a regression (worse latency at all scales, timeouts at full scale), not just an insufficient improvement — `FT-046`/`FT-047` were reverted. Per this row's own mitigation, escalate to Q3 (batching) or Q4 (Mnesia tuning) as a follow-up amendment; do not re-attempt cross-table transaction merging without addressing the lock-contention mechanism `clarifications.md` Q17 Addendum 2 describes. |
 
 ## Re-check after Phase 1
 

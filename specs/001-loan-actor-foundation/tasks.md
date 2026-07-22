@@ -49,10 +49,13 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-028 | DONE | `FT-028` commit |
 | FT-034 | DONE | `FT-034` commit |
 | FT-035 | DONE (SC-001 gap found and documented — see commit) | this commit |
+| FT-046 | REVERTED (regression — see `clarifications.md` Q17 Addendum 2) | implemented `4e688f6`, reverted `cca65b0` |
+| FT-047 | REVERTED (depended on FT-046) | implemented `480226d`, reverted `9fdf498` |
+| FT-048 | DONE — gap NOT closed (NFR-001 still fails; regression found instead) | this commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 
-*(Task list amended 2026-07-22 by intent 0005: FT-046..FT-048 added (Track 15, reactive pipeline throughput) — FT-046/FT-047 not yet started; FT-048 depends on both.)*
+*(Task list amended 2026-07-22 by intent 0005: FT-046..FT-048 added (Track 15, reactive pipeline throughput). FT-046/FT-047 were implemented, then REVERTED after FT-048's load-test re-run showed the fix is a regression, not an improvement — see `clarifications.md` Q17 Addendum 2 for the full evidence. NFR-001 remains unmet; intent 0005 stays `Specified`, not `Implemented`.)*
 
 ---
 
@@ -363,7 +366,7 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ---
 
-## Track 15 — Reactive pipeline throughput *(added by intent 0005)*
+## Track 15 — Reactive pipeline throughput *(added by intent 0005; FT-046/FT-047 REVERTED after load-test evidence — see `clarifications.md` Q17 Addendum 2. Task descriptions below are left as-authored to document what was attempted and why; they do not describe the current state of the code.)*
 
 ### FT-046 — `DiaryStore.append_with_dedup/4` — behaviour + both implementations
 - Deliverable: `contracts/diary-store-behaviour.md` amended (new callback, done as part of this spec commit); `lib/loan_actor/diary/store.ex` gains the `@callback`; `lib/loan_actor/diary/mnesia.ex` implements it as a dirty-read peek + one combined `:mnesia.transaction/1` (dedup-check + tail-read + chain-verify + diary write + idem write); `lib/loan_actor/diary/file.ex` implements it by delegating to the pre-0005 separate-calls shape (idempotency is always Mnesia-backed regardless of diary backend).
@@ -418,20 +421,31 @@ FT-017 ─► FT-047
 |---|---|
 | Happy | All production tasks. |
 | Boundary | FT-005, FT-010, FT-013, FT-014, FT-018, FT-023, FT-024, FT-032, FT-041, FT-044, FT-045. |
-| Error | FT-005, FT-011, FT-013, FT-014, FT-016, FT-021, FT-026, FT-028, FT-033, FT-039, FT-041, FT-042, FT-044, FT-045, FT-046, FT-047. |
-| Race | FT-008, FT-015, FT-019, FT-024, FT-025, FT-028, FT-046, FT-047. |
-| Replay | FT-007, FT-008, FT-009, FT-034 (incl. tool-entry replay), FT-036, FT-043, FT-046, FT-047. |
+| Error | FT-005, FT-011, FT-013, FT-014, FT-016, FT-021, FT-026, FT-028, FT-033, FT-039, FT-041, FT-042, FT-044, FT-045. |
+| Race | FT-008, FT-015, FT-019, FT-024, FT-025, FT-028. |
+| Replay | FT-007, FT-008, FT-009, FT-034 (incl. tool-entry replay), FT-036, FT-043. |
 | Security | FT-005, FT-014, FT-021, FT-022 (extended to `lib/loan_actor/tools/`), FT-026, FT-027, FT-043 (PII order-of-operations). |
-| Contract | FT-006, FT-023 (15 snapshots), FT-030, FT-038 (incl. ToolCall frames), FT-041, FT-042, FT-044, FT-046. |
-| Performance | FT-035 (with tool ceremony on), FT-036, FT-048. |
+| Contract | FT-006, FT-023 (15 snapshots), FT-030, FT-038 (incl. ToolCall frames), FT-041, FT-042, FT-044. |
+| Performance | FT-035 (with tool ceremony on), FT-036, FT-048 (re-run; gap confirmed still open, see below). |
+
+*(FT-046/FT-047's taxonomy contributions were removed from this table when both were reverted
+— their code no longer exists in the tree. `FT-048` still counts: the load-test re-run
+happened and produced a real result, just not the one this intent wanted.)*
 
 Every applicable category has at least one task → SC-008 satisfied.
 
 ## Definition of done (foundation)
 
-- All FT-001..FT-048 PRs merged (FT-018b superseded by FT-044; intent 0004/0005 tasks are part of this spec).
+- All FT-001..FT-045 PRs merged (FT-018b superseded by FT-044; intent 0004 tasks are part of
+  this spec). **`FT-046`/`FT-047` (intent 0005) were implemented then reverted — see
+  `clarifications.md` Q17 Addendum 2 — and are NOT part of the merged foundation.**
 - CI green on `main` for: `mix test`, `mix dialyzer`, `mix credo --strict`, `mix test.load`, `npm test`, Playwright e2e (including the contract test), and the smoke check.
 - Quickstart smoke checklist passes manually.
 - Constitution v1.0.0 still passes the matrix in `analysis.md`.
 - Intent 0001 status updated to `Implemented`.
-- `NFR-001` genuinely holds at full `SC-001` scale (`FT-048`/SC-015) — not just documented as a known gap.
+- **`NFR-001` does NOT yet hold at full `SC-001` scale.** Intent 0005's attempted fix
+  (`FT-046`/`FT-047`, collapsing the reactive pipeline's three Mnesia transactions into one)
+  was implemented, load-tested, and found to be a regression — see `clarifications.md` Q17
+  Addendum 2 for the measured evidence — and was reverted. This item stays unmet, honestly
+  reported rather than closed; a follow-up amendment is needed before intent 0005 can move to
+  `Implemented`.

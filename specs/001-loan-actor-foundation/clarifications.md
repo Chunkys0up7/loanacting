@@ -386,6 +386,47 @@ declaring victory on transaction-count reduction alone.
 - The existing race test proving exactly-one-`:fresh`-winner under concurrent duplicate
   delivery (`FT-015`) is re-verified against the new single-transaction shape, not dropped.
 
+**Addendum 2 — Q1 implemented, load-tested, and DISPROVEN (2026-07-22, `/speckit-implement`
+FT-046/047/048).** The design above was built exactly as specified (`FT-046`: the
+`append_with_dedup/4` callback, Mnesia's combined transaction, File's unchanged two-call
+path; `FT-047`: `Server`'s reactive path wired onto it) and passed the full test suite,
+`credo --strict`, and `dialyzer` cleanly. **It was then reverted**, because `FT-048`'s
+re-run of `FT-035`'s load test (the literal acceptance gate this clarification names) showed
+it is a **regression**, not an improvement:
+
+- At reduced scale (20 loans / 10 events-sec / 15 s) — a profile the **unmodified pre-0005
+  code passes** (p95 95.33 ms) — the combined-transaction design measured p95 **300.03 ms**,
+  three times worse.
+- At full scale (100 loans / 10 events-sec / 60 s) it did not merely miss the budget the way
+  the pre-0005 code did (496.64 ms p95) — it caused outright `GenServer.call` timeouts
+  (5000 ms exceeded) under sustained concurrent load, a materially worse failure mode than
+  the gap this intent set out to close.
+- Root cause (best understanding, not exhaustively proven): the combined transaction reduces
+  transaction *count* by increasing transaction *duration/lock-hold-time* per event (it now
+  does an idempotency read, a `:mnesia.prev/2` tail scan, a diary write, and an idempotency
+  write, all before one commit, touching two tables instead of one). Under ~100-way
+  concurrent writers, Mnesia's optimistic concurrency control appears to pay for that with
+  more validation conflicts/retries than three separate, narrower single-table transactions
+  cost — i.e., **transaction count was the wrong thing to optimize**; lock contention under
+  concurrency, not per-transaction overhead, is the dominant cost at this profile. This was
+  verified by bisection against the unmodified pre-0005 code at matching scale (not just
+  "tests still pass") — see the `FT-046`/`FT-047` commits' own revert commits for the full
+  before/after numbers.
+- This does **not** invalidate Q2/Q3/Q4 (never tried) or the diagnosis that
+  `LoanActor.Idempotency`'s two-phase design and `FT-035`'s own root-cause analysis correctly
+  identified *a* hot-path cost — it invalidates *this specific mitigation* (collapsing across
+  tables into one transaction) as the fix.
+- **Status: NFR-001 remains unmet.** `FT-046`/`FT-047` were reverted (see revert commits);
+  the reactive pipeline is back to the pre-0005 three-transaction shape. Intent 0005 stays
+  `Specified`, not `Implemented` — its stated Outcome was not achieved. A follow-up amendment
+  should evaluate Q3 (batching) or Q4 (Mnesia tuning) on their own — NOT combined with
+  cross-table transaction merging — or investigate whether `:mnesia.prev/2`'s tail-scan
+  itself (used identically by the pre-0005 diary-append transaction) is the deeper bottleneck
+  independent of idempotency entirely, e.g. via a dedicated tail-pointer table avoiding the
+  scan (a data-model change requiring its own amendment). Per this repo's own precedent
+  (`FT-035`'s "honestly reported gap, not worked around"), this is reported as-is rather than
+  declaring victory on a reverted change.
+
 ---
 
 ## Summary of locked architectural decisions
