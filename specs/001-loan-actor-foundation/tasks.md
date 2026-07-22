@@ -55,7 +55,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-029 | DONE | `107e4bc` |
 | FT-030 | DONE | `130407c` |
 | FT-031 | DONE | `130407c` |
-| FT-032 | DONE | this commit |
+| FT-032 | DONE | `e61f339` (+ `9eddc19` inspector fix) |
+| FT-045 | DONE | this commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 

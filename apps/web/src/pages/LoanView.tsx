@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { CopilotKit, useCoAgent, useCoAgentStateRender } from "@copilotkit/react-core";
 import { consumeAGUIStream } from "../lib/ag-ui-client";
+import { applyToolCallEvent, type ToolCallsById } from "../lib/tool-calls";
 import { StateCard } from "../components/StateCard";
 import { DiaryFeed } from "../components/DiaryFeed";
 import { EventSender } from "../components/EventSender";
+import { ToolCallCard } from "../components/ToolCallCard";
 import type { AGUIEvent, DiaryEntry, LoanState } from "../types";
 
 export interface LoanViewProps {
@@ -49,6 +51,7 @@ function emptyLoanState(loanId: string): LoanState {
 function LoanViewInner({ loanId, baseUrl }: LoanViewProps) {
   const [displayState, setDisplayState] = useState<LoanState | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>([]);
+  const [toolCalls, setToolCalls] = useState<ToolCallsById>({});
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -70,6 +73,10 @@ function LoanViewInner({ loanId, baseUrl }: LoanViewProps) {
       { loanId, baseUrl, signal: controller.signal },
       {
         onEvent: (event: AGUIEvent) => {
+          // Correlates ToolCallStart/Args/End/Result by tool_call_id
+          // (FT-045); a no-op for every other event type.
+          setToolCalls((previous) => applyToolCallEvent(previous, event));
+
           switch (event.type) {
             case "StateSnapshot":
               setDisplayState(event.state);
@@ -116,6 +123,18 @@ function LoanViewInner({ loanId, baseUrl }: LoanViewProps) {
       {notice && <p role="status">{notice}</p>}
       <StateCard state={displayState} />
       <DiaryFeed entries={diaryEntries} />
+      <section aria-label="Tool calls">
+        <h3>Tool calls</h3>
+        {Object.keys(toolCalls).length === 0 ? (
+          <p>No tool calls yet.</p>
+        ) : (
+          <ul>
+            {Object.values(toolCalls).map((toolCall) => (
+              <ToolCallCard key={toolCall.toolCallId} toolCall={toolCall} />
+            ))}
+          </ul>
+        )}
+      </section>
       <EventSender
         loanId={loanId}
         baseUrl={baseUrl}

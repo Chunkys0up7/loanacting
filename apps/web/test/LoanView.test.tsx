@@ -112,6 +112,32 @@ describe("LoanView", () => {
     expect(container.textContent).toContain("processing");
   });
 
+  it("renders a ToolCallCard, correlated across Start/Args/End/Result (happy, FT-045)", () => {
+    act(() => {
+      root.render(<LoanView loanId="L-1" />);
+    });
+
+    act(() => {
+      capturedHandlers?.onEvent({ type: "ToolCallStart", tool_call_id: "inv-1", tool_call_name: "verify_diary_chain", loan_id: "L-1" });
+      capturedHandlers?.onEvent({ type: "ToolCallArgs", tool_call_id: "inv-1", delta: "{}" });
+      capturedHandlers?.onEvent({ type: "ToolCallEnd", tool_call_id: "inv-1" });
+    });
+
+    expect(container.textContent).toContain("verify_diary_chain");
+    expect(container.querySelector("[data-status]")?.getAttribute("data-status")).toBe("pending");
+
+    act(() => {
+      capturedHandlers?.onEvent({
+        type: "ToolCallResult",
+        message_id: "msg-1",
+        tool_call_id: "inv-1",
+        content: '{"verify_chain":true}',
+      });
+    });
+
+    expect(container.querySelector("[data-status]")?.getAttribute("data-status")).toBe("complete");
+  });
+
   it("surfaces an unrecognized event as an alert rather than dropping it (error)", () => {
     act(() => {
       root.render(<LoanView loanId="L-1" />);
