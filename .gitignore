@@ -22,6 +22,7 @@ apps/web/.vite/
 apps/web/playwright-report/
 apps/web/test-results/
 apps/web/coverage/
+apps/web/*.tsbuildinfo
 
 # OS / editors
 .DS_Store
