@@ -4,7 +4,8 @@ defmodule LoanActor.Application do
   and the per-loan `DynamicSupervisor`, in that order (the supervisor's
   children register themselves into the registry as they start, so the
   registry must already be up), plus `LoanActor.AGUI.Stream` (FT-024) — the
-  supervisor for per-client AG-UI subscriber processes.
+  supervisor for per-client AG-UI subscriber processes — and
+  `LoanActor.Web.Endpoint` (FT-027), the HTTP server.
   """
 
   use Application
@@ -14,7 +15,8 @@ defmodule LoanActor.Application do
     children = [
       LoanActor.Registry,
       LoanActor.Supervisor,
-      LoanActor.AGUI.Stream
+      LoanActor.AGUI.Stream,
+      LoanActor.Web.Endpoint
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: LoanActor.RootSupervisor)

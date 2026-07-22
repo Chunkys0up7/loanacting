@@ -11,6 +11,8 @@ config :loan_actor,
   mnesia_dir: "priv/mnesia",
   # Subscriber bounded queue size before slow-client resync (research R-2)
   ag_ui_subscriber_buffer: 128,
+  # LoanActor.Web.Endpoint (FT-027) port; per-env override below
+  http_port: 4000,
   # Foundation tool set (FT-043, contracts/tool-behaviour.md); test files may
   # override locally (Application.put_env) to inject fixtures instead.
   tools: [
