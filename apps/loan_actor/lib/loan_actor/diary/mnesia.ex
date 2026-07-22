@@ -21,6 +21,22 @@ defmodule LoanActor.Diary.Mnesia do
 
   Diary sequences are gap-free from 0 (chain invariant), so `stream/2` walks
   `sequence` upward with dirty reads — replay does not pay transaction costs.
+
+  ## `append_with_dedup/4` (intent 0005)
+
+  `FT-035`'s load test found the reactive pipeline's three-separate-Mnesia-
+  transactions-per-event shape (idempotency reserve, diary append, idempotency
+  fill) misses `NFR-001` at full scale. This callback collapses it to one: a
+  `:mnesia.dirty_read/2` peek against `loan_idem` first (near-zero cost, safe
+  because a single loan's events are only ever handled by that loan's one
+  serialized `LoanActor.Server` process — no concurrent writer can race this
+  key), then, on a miss, one `:mnesia.transaction/1` that re-checks the key
+  (`Idempotency.txn_check/3`), reads the `loan_diary` tail, calls
+  `entry_builder` to get the entry, verifies chain linkage
+  (`Chain.verify_append/2`, unchanged), writes the diary entry, and writes the
+  final `{received_at, sequence}` to `loan_idem` (`Idempotency.txn_record/4`)
+  — all before commit. See `contracts/diary-store-behaviour.md` invariant 6
+  and `specs/001-loan-actor-foundation/clarifications.md` Q17.
   """
 
   @behaviour LoanActor.Diary.Store
@@ -28,6 +44,7 @@ defmodule LoanActor.Diary.Mnesia do
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Diary.Store
+  alias LoanActor.Idempotency
 
   @table :loan_diary
   @idem_table :loan_idem
@@ -57,6 +74,45 @@ defmodule LoanActor.Diary.Mnesia do
   end
 
   def append(_loan_id, %Entry{}), do: {:error, :loan_id_mismatch}
+
+  @impl Store
+  def append_with_dedup(loan_id, event_id, source, entry_builder) when is_function(entry_builder, 1) do
+    case :mnesia.dirty_read(@idem_table, {loan_id, event_id, source}) do
+      [{@idem_table, _key, {_received_at, sequence}}] ->
+        {:duplicate, sequence}
+
+      [] ->
+        run_dedup_transaction(loan_id, event_id, source, entry_builder)
+    end
+  end
+
+  defp run_dedup_transaction(loan_id, event_id, source, entry_builder) do
+    case :mnesia.transaction(fn -> txn_append_with_dedup(loan_id, event_id, source, entry_builder) end) do
+      {:atomic, result} -> result
+      {:aborted, reason} -> {:error, reason}
+    end
+  end
+
+  defp txn_append_with_dedup(loan_id, event_id, source, entry_builder) do
+    case Idempotency.txn_check(loan_id, event_id, source) do
+      {:duplicate, sequence} ->
+        {:duplicate, sequence}
+
+      :fresh ->
+        tail = txn_tail(loan_id)
+        entry = entry_builder.(tail)
+
+        case Chain.verify_append(tail, entry) do
+          :ok ->
+            :ok = :mnesia.write({@table, Entry.entry_id(entry), :erlang.term_to_binary(entry)})
+            :ok = Idempotency.txn_record(loan_id, event_id, source, entry.sequence)
+            {:fresh, entry.sequence, entry}
+
+          {:error, reason} ->
+            :mnesia.abort(reason)
+        end
+    end
+  end
 
   defp txn_append(loan_id, entry) do
     case Chain.verify_append(txn_tail(loan_id), entry) do

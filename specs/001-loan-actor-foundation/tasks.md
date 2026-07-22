@@ -49,10 +49,12 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-028 | DONE | `FT-028` commit |
 | FT-034 | DONE | `FT-034` commit |
 | FT-035 | DONE (SC-001 gap found and documented — see commit) | this commit |
+| FT-046 | DONE | `FT-046` commit |
+| FT-047 | DONE | `FT-047` commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 
-*(Task list amended 2026-07-22 by intent 0005: FT-046..FT-048 added (Track 15, reactive pipeline throughput) — FT-046/FT-047 not yet started; FT-048 depends on both.)*
+*(Task list amended 2026-07-22 by intent 0005: FT-046..FT-048 added (Track 15, reactive pipeline throughput). FT-046/FT-047 landed; FT-048 (FT-035 load-test re-run, the NFR-001 acceptance gate) pending.)*
 
 ---
 
@@ -371,9 +373,9 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 - Taxonomy: happy / boundary / race / replay / error / contract.
 - Depends on: FT-006 (shared store suite), FT-007, FT-008, FT-015.
 
-### FT-047 — `LoanActor.Server` reactive path onto `append_with_dedup/4`; retire two-phase `Idempotency` API
-- Deliverable: `lib/loan_actor/server.ex`'s `handle_clean_event/3`/`apply_event/3` call `store.append_with_dedup/4` once per event (builder closure captures the already-computed `State.transition/2` result / `IllegalTransitionError` rescue path, unchanged); `lib/loan_actor/idempotency.ex`'s public `check_and_record/3` + `record_sequence/4` are retired in favor of transaction-scoped helpers consumed only from `Diary.Mnesia` (FT-046).
-- Tests: `test/server_reactive_test.exs` updated for the new call shape; `test/idempotency_test.exs` updated to unit-test the transaction-scoped helpers directly (narrow, not a race test — they only ever run inside an already-open transaction, so concurrency correctness is fully covered by FT-046's shared-suite race test, not re-tested here); FT-034's property-based replay suite re-run and must stay green with no changes required (diary entry shapes are unchanged; replay never touches `loan_idem`, so this is a non-regression gate, not coverage of the new logic).
+### FT-047 — `LoanActor.Server` reactive path onto `append_with_dedup/4`
+- Deliverable: `lib/loan_actor/server.ex`'s `handle_clean_event/3`/`apply_event/3` call `store.append_with_dedup/4` once per event; `State.transition/2`'s attempt (including the `IllegalTransitionError` rescue path, unchanged) now runs before the storage call rather than gating it, with its outcome threaded through to decide the reply/state-update once `:fresh`/`:duplicate` is known. `lib/loan_actor/idempotency.ex`'s existing public `check_and_record/3` + `record_sequence/4` are **not** removed (correction vs. this spec's original Q17 wording — see `clarifications.md`'s addendum): they're still needed by `Diary.File.append_with_dedup/4` (FT-046), just no longer called directly from `Server`. New transaction-scoped `txn_check/3` + `txn_record/4` (added in FT-046) are the only actual additions to `Idempotency`.
+- Tests: `test/server_reactive_test.exs` updated for the new call shape (same observable reply/diary-entry assertions — this is an internal refactor, not a behavior change, so existing assertions should still hold); `test/idempotency_test.exs`'s standalone race test removed (superseded by FT-046's shared-suite race test), its happy/error unit tests for `check_and_record/3`/`record_sequence/4` kept as-is (unchanged functions), and unit tests added for `txn_check/3`/`txn_record/4` wrapped in an explicit test-owned `:mnesia.transaction/1` (narrow, not a race test — they only ever run inside an already-open transaction); FT-034's property-based replay suite re-run and must stay green with no changes required (diary entry shapes are unchanged; replay never touches `loan_idem`, so this is a non-regression gate, not coverage of the new logic).
 - Taxonomy: happy / replay / error / regression.
 - Depends on: FT-046, FT-017.
 

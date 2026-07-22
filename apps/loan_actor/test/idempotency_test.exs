@@ -3,7 +3,20 @@ defmodule LoanActor.IdempotencyTest do
   FT-015 — `LoanActor.Idempotency.check_and_record/3` + `record_sequence/4`
   (shape extended per clarifications.md Q13, discovered while building
   FT-017: `{:duplicate, sequence}` requires the idem record to carry it).
-  Taxonomy: happy / race / replay.
+  Now consumed only by `LoanActor.Diary.File.append_with_dedup/4` (0005) —
+  `Server` no longer calls these directly.
+
+  Also covers `txn_check/3` + `txn_record/4` (FT-046, 0005) — the
+  transaction-scoped siblings `LoanActor.Diary.Mnesia.append_with_dedup/4`
+  uses inside its own combined transaction. These are unit/happy/atomicity
+  tests only; the concurrent-duplicate-delivery race property that used to
+  be tested standalone here is now proven at the `DiaryStore` behaviour
+  level instead (`test/support/diary_store_shared.ex`'s
+  `append_with_dedup/4` describe block, parameterized across both
+  implementations) — not duplicated here, since `txn_check/3`/`txn_record/4`
+  only ever run inside an already-open transaction and can't race standalone.
+
+  Taxonomy: happy / replay / regression.
 
   Mnesia is a single node-wide database: this suite shares its directory
   with `test/diary/mnesia_test.exs` via `LoanActor.MnesiaTestSupport` so
@@ -78,20 +91,49 @@ defmodule LoanActor.IdempotencyTest do
     end
   end
 
-  describe "check_and_record/3 — race" do
-    test "10 concurrent callers racing the same key: exactly one wins :fresh" do
+  describe "txn_check/3 + txn_record/4 (0005) — happy, transaction-scoped" do
+    test "a never-before-seen key is :fresh; txn_record/4 fills the sequence for a later txn_check/3" do
       loan_id = Factory.unique_loan_id()
       event_id = unique_event_id()
 
-      results =
-        1..10
-        |> Task.async_stream(fn _ -> Idempotency.check_and_record(loan_id, event_id, :test) end,
-          max_concurrency: 10
-        )
-        |> Enum.map(fn {:ok, result} -> result end)
+      {:atomic, result} =
+        :mnesia.transaction(fn ->
+          fresh = Idempotency.txn_check(loan_id, event_id, :test)
+          :ok = Idempotency.txn_record(loan_id, event_id, :test, 5)
+          fresh
+        end)
 
-      assert Enum.count(results, &(&1 == :fresh)) == 1
-      assert Enum.count(results, &match?({:duplicate, nil}, &1)) == 9
+      assert result == :fresh
+
+      assert {:atomic, {:duplicate, 5}} =
+               :mnesia.transaction(fn -> Idempotency.txn_check(loan_id, event_id, :test) end)
+    end
+
+    test "a key already recorded is {:duplicate, sequence} within the same transaction call" do
+      loan_id = Factory.unique_loan_id()
+      event_id = unique_event_id()
+
+      {:atomic, :ok} =
+        :mnesia.transaction(fn ->
+          :fresh = Idempotency.txn_check(loan_id, event_id, :test)
+          Idempotency.txn_record(loan_id, event_id, :test, 3)
+        end)
+
+      assert {:atomic, {:duplicate, 3}} =
+               :mnesia.transaction(fn -> Idempotency.txn_check(loan_id, event_id, :test) end)
+    end
+
+    test "an aborted transaction leaves neither a fresh reservation nor a recorded sequence" do
+      loan_id = Factory.unique_loan_id()
+      event_id = unique_event_id()
+
+      {:aborted, :simulated_failure} =
+        :mnesia.transaction(fn ->
+          :fresh = Idempotency.txn_check(loan_id, event_id, :test)
+          :mnesia.abort(:simulated_failure)
+        end)
+
+      assert {:atomic, :fresh} = :mnesia.transaction(fn -> Idempotency.txn_check(loan_id, event_id, :test) end)
     end
   end
 

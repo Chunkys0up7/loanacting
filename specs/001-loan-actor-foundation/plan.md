@@ -239,11 +239,15 @@ Tasks will be sequenced under these tracks (ordering enforced by dependencies de
   "switching requires zero changes outside the implementation module" holds.
 - **`Server`**: `handle_clean_event/3` no longer calls `Idempotency.check_and_record/3`
   directly. `apply_event/3` computes the `State.transition/2` attempt first (pure, unchanged
-  — including the `IllegalTransitionError` rescue path), builds an `entry_builder` closure
-  from whichever entry type/payload resulted, and calls `store.append_with_dedup/4` once.
-  `Idempotency.record_sequence/4` and the public two-phase API disappear; `Idempotency`
-  keeps the composite-key concept as transaction-scoped helpers consumed only from
-  `Diary.Mnesia`.
+  — including the `IllegalTransitionError` rescue path; its result is discarded, harmlessly,
+  on the eventual `:duplicate` branch), builds an `entry_builder` closure from whichever
+  entry type/payload resulted, and calls `store.append_with_dedup/4` once.
+  **Correction found during implementation** (see `clarifications.md`'s addendum to Q17):
+  `Idempotency.check_and_record/3` + `record_sequence/4` are **not** retired — `Diary.File`
+  still needs them (no Mnesia transaction of its own to fold into); they just gain a new
+  caller (`Diary.File`, not `Server`). `Idempotency` additionally gains `txn_check/3` +
+  `txn_record/4`, transaction-scoped siblings consumed only from `Diary.Mnesia`'s combined
+  transaction.
 - **Acceptance gate**: `FT-035`'s existing load test, re-run unmodified at its default scale
   (SC-015). No new load-test file — the fix is proven against the same measurement that
   found the gap.

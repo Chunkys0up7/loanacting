@@ -52,4 +52,21 @@ defmodule LoanActor.Diary.Store do
 
   @doc "TEST ONLY. Remove every entry for `loan_id`. MUST raise in `:prod`."
   @callback wipe(loan_id) :: :ok | {:error, term()}
+
+  @typedoc "Builds the entry to append, given the current tail (`nil` for an empty diary)."
+  @type entry_builder :: (entry | nil -> entry)
+
+  @doc """
+  Combines the reactive pipeline's duplicate-detection (composite key
+  `{loan_id, event_id, source}`, `contracts/diary-store-behaviour.md`) with the
+  diary append it gates (FT-046, intent 0005).
+
+  A `:duplicate` result performs no diary write. A `:fresh` result performs
+  exactly one diary append (the entry returned by calling `entry_builder`
+  with the current tail) and durably records the winning
+  `{received_at, sequence}` for the composite key — both as a single,
+  indivisible unit (see the contract's invariant 6).
+  """
+  @callback append_with_dedup(loan_id, event_id :: String.t(), source :: atom(), entry_builder) ::
+              {:fresh, sequence, entry} | {:duplicate, sequence} | {:error, term()}
 end

@@ -76,6 +76,44 @@ defmodule LoanActor.Diary.MnesiaTest do
     end
   end
 
+  describe "append_with_dedup/4 — combined-transaction atomicity (0005, Mnesia-only)" do
+    # These assertions are STRONGER than the shared-suite versions
+    # (test/support/diary_store_shared.ex) because they rely on Mnesia's
+    # real transactional atomicity specifically — `Diary.File` cannot make
+    # the same guarantee (it keeps the pre-0005 two-phase design's accepted
+    # known limitation for these exact scenarios), so these live here
+    # rather than in the shared, cross-implementation suite.
+
+    test "a forced abort leaves no idempotency trace either — retry is :fresh, not :duplicate" do
+      loan_id = Factory.unique_loan_id()
+      event_id = unique_event_id()
+      bad_builder = fn _tail -> Factory.entry(%{loan_id: loan_id, sequence: 0, prev_hash: <<1::256>>}) end
+
+      assert {:error, _reason} = MnesiaStore.append_with_dedup(loan_id, event_id, :test, bad_builder)
+      assert {:ok, nil} = MnesiaStore.tail(loan_id)
+
+      good_builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
+      assert {:fresh, 0, _entry} = MnesiaStore.append_with_dedup(loan_id, event_id, :test, good_builder)
+    end
+
+    test "10 concurrent racers: every loser sees the winner's FINAL sequence, never an intermediate nil" do
+      loan_id = Factory.unique_loan_id()
+      event_id = unique_event_id()
+      builder = fn tail -> Factory.next_entry(tail, %{loan_id: loan_id}) end
+
+      results =
+        1..10
+        |> Task.async_stream(fn _ -> MnesiaStore.append_with_dedup(loan_id, event_id, :test, builder) end,
+          max_concurrency: 10
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.count(results, &match?({:fresh, _, _}, &1)) == 1
+      {:fresh, winning_sequence, _entry} = Enum.find(results, &match?({:fresh, _, _}, &1))
+      assert Enum.count(results, &(&1 == {:duplicate, winning_sequence})) == 9
+    end
+  end
+
   describe "durability — replay" do
     test "entries survive a full Mnesia stop/start cycle (disc_copies)" do
       loan_id = Factory.unique_loan_id()
