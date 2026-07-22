@@ -175,9 +175,16 @@ defmodule LoanActor.ServerHeartbeatTest do
 
       # Drive the loan to :processing so the fixture's trigger (which
       # mentions "processing") keyword-overlaps the loan context.
-      {:ok, 1} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_set}))
-      {:ok, 2} = LoanActor.send_event(loan_id, Factory.event(%{type: :document_uploaded}))
-      {:ok, 3} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_satisfied}))
+      # NOTE: sequence numbers are NOT asserted literally — FT-019 made
+      # :goal_set queue a :plan self-message, which (per the Server's
+      # single-mailbox FIFO ordering) is guaranteed to be processed before
+      # this test's OWN next send_event call can possibly arrive, since
+      # that call cannot even be issued until the first one returns. Its
+      # tool_invoked/tool_completed pair lands at whatever sequence the
+      # diary is at by then.
+      {:ok, _seq1} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_set}))
+      {:ok, _seq2} = LoanActor.send_event(loan_id, Factory.event(%{type: :document_uploaded}))
+      {:ok, _seq3} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_satisfied}))
 
       # NOTE: the reactive :goal_set EVENT above already produces a diary
       # entry of type :goal_set (the diary type mirrors the event type) —

@@ -261,6 +261,36 @@ binding scheme. No new mechanism was added; `description` already exists on ever
 
 ---
 
+## Q15 — Where does request_document's doc_type argument come from? *(FT-019, 2026-07-21)*
+
+**Resolution: keyword-match open goals' descriptions for one of "income"/"identity"/
+"appraisal"; default "income" if none mention one.**
+
+**Rationale.** `request_document`'s schema requires `doc_type` as one of a fixed enum —
+unlike `set_goal`'s free-text `description` (Q14's resolution doesn't transfer directly).
+Neither the `Goal` struct nor `contracts/skill-format.md` carries a structured `doc_type`
+field. Raised directly (PD-1) rather than silently defaulting. Confirmed: the planning loop
+scans `state.goals` (open ones only), keyword-matching each description against the three
+enum words; first match wins; `"income"` if none match — documented as the foundation
+placeholder, not a real business rule.
+
+**Locked decisions.**
+- `LoanActor.Server.infer_doc_type/1` is exposed (not part of `contracts/loan-actor-api.md`)
+  specifically so this pure decision is directly unit-testable — diary entries carry only a
+  **hash** of tool args/results (Principle VIII), so which `doc_type` was actually chosen can
+  never be recovered by reading the diary from outside.
+- `LoanActor.Server.maybe_trigger_planning/1` is exposed for the same reason: an
+  integration-level "did NOT trigger planning again" assertion is confounded by the periodic
+  loop's own independent `verify_diary_chain` invocation, since diary entries can't reveal
+  *which* tool a `:tool_invoked` entry is for.
+- `:plan` fires specifically after a successful `:goal_set` reactive transition — a literal
+  reading of "when goals are set" (FT-019's task text), not "any state change re-plans".
+- `run_planning/1` diary-logs `:skill_activated` for every match, regardless of which tool
+  (if any) it acts on — mirrors `run_matched_skills/1`'s (FT-018) established behavior;
+  consistency, not a new rule.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |

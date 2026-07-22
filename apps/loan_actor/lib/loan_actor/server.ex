@@ -53,7 +53,27 @@ defmodule LoanActor.Server do
   `:tool_invoked` before execution and `:tool_completed`/`:tool_failed`
   after — payload carries the tool name, invocation id, and a hash of the
   (PII-guarded) args / result, never the raw values (`contracts/tool-behaviour.md`
-  invariant 4). No AG-UI streaming yet — the encoder (FT-023) hasn't landed.
+  invariant 4). No AG-UI streaming yet — the encoder exists (FT-023) but the
+  SSE stream (FT-024) does not, so tool invocations here are diary-proven
+  only; live event delivery lands once FT-024/025 wire a real subscriber.
+
+  ## Planning loop (FT-019)
+
+  `handle_info(:plan, _)` fires as a **self-message sent from the reactive
+  pipeline** — not a timer — specifically after a successful `:goal_set`
+  transition (a narrower, literal reading of the task's "when goals are
+  set", not "any state change re-plans"; see `maybe_trigger_planning/1`).
+  Each firing trigger-matches skills against the current loan context
+  (`event_type: :plan`); for a matched skill naming `request_document` in
+  `tools_required`, the tool is invoked with a `doc_type` keyword-matched
+  from open goals' descriptions (one of `"income"`/`"identity"`/
+  `"appraisal"`), defaulting to `"income"` if none mention one — confirmed
+  2026-07-21, since neither the `Goal` struct nor the skill-format contract
+  carries a structured `doc_type` field. Unlike the periodic loop's
+  `set_goal`, `request_document`'s effect is purely informational (an
+  outbound request, not a state mutation) — SC-012 asks only for the
+  tool's own diary pair and AG-UI sequence, no extra effect-application
+  diary entry.
   """
 
   use GenServer
@@ -129,6 +149,12 @@ defmodule LoanActor.Server do
     {:noreply, run_heartbeat(gen_state)}
   end
 
+  # loop: planning
+  @impl GenServer
+  def handle_info(:plan, gen_state) do
+    {:noreply, run_planning(gen_state)}
+  end
+
   # ---- reactive pipeline: PIIGuard -> idempotency -> transition -> diary ----
 
   defp handle_valid_event(event, gen_state) do
@@ -152,6 +178,7 @@ defmodule LoanActor.Server do
       new_state = State.transition(state, event.type)
       {:ok, sequence} = append_entry(store, loan_id, event.type, Atom.to_string(event.source), clean_payload)
       :ok = Idempotency.record_sequence(loan_id, event.event_id, event.source, sequence)
+      maybe_trigger_planning(event.type)
       {:reply, {:ok, sequence}, %{gen_state | state: new_state}}
     rescue
       e in IllegalTransitionError ->
@@ -326,6 +353,81 @@ defmodule LoanActor.Server do
       event_type: event_type,
       goal_descriptions: Enum.map(state.goals, & &1.description)
     }
+  end
+
+  # ---- planning loop (FT-019) ----
+
+  @doc """
+  Sends `:plan` to `self()` iff `event_type == :goal_set` — "when goals
+  are set" per the task's literal wording, not "any state change
+  re-plans". Exposed (not part of `contracts/loan-actor-api.md`'s public
+  surface) so this decision is directly unit-testable: an
+  integration-level diary-count assertion would be confounded by the
+  periodic loop's own independent `verify_diary_chain` invocations
+  (diary entries carry only a tool-args HASH, never the tool name in the
+  clear, so "was this tool_invoked from planning or from the heartbeat"
+  cannot be told apart by reading the diary from outside).
+  """
+  @spec maybe_trigger_planning(atom()) :: :ok
+  def maybe_trigger_planning(:goal_set) do
+    send(self(), :plan)
+    :ok
+  end
+
+  def maybe_trigger_planning(_other_event_type), do: :ok
+
+  @doc_type_keywords ~w(income identity appraisal)
+
+  defp run_planning(gen_state) do
+    loan_context = build_loan_context(gen_state.state, :plan)
+    {:ok, skills} = SkillLoader.load_all([])
+    matched = SkillLoader.match(loan_context, skills)
+
+    Enum.reduce(matched, gen_state, fn skill, acc ->
+      # Every match is diary-logged regardless of which tool it names —
+      # mirrors run_matched_skills/1's (FT-018) established behavior.
+      # request_document is the only tool this loop acts on.
+      acc = log_skill_activated(acc, skill)
+
+      if "request_document" in skill.tools_required do
+        run_request_document(acc)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp run_request_document(gen_state) do
+    doc_type = infer_doc_type(gen_state.state.goals)
+    {gen_state, _result} = invoke_tool(gen_state, "request_document", %{"doc_type" => doc_type}, :planning)
+    gen_state
+  end
+
+  @doc """
+  Keyword-match open goals' descriptions for one of the three
+  `request_document` enum values; default `"income"` if none mention one
+  (confirmed 2026-07-21 — neither the `Goal` struct nor the skill-format
+  contract carries a structured `doc_type`, so this is the documented
+  foundation placeholder, not a real business rule).
+
+  Exposed (not part of `contracts/loan-actor-api.md`'s public surface) so
+  it is directly unit-testable: diary entries only ever carry a *hash* of
+  tool args (constitution Principle VIII), so which `doc_type` was chosen
+  cannot be recovered by observing the diary from outside — pure logic
+  like this needs a direct test, not an indirect one.
+  """
+  @spec infer_doc_type([LoanActor.Goal.t()]) :: String.t()
+  def infer_doc_type(goals) do
+    goals
+    |> Enum.filter(&(&1.status == :open))
+    |> Enum.map(&String.downcase(&1.description))
+    |> Enum.find_value(fn description ->
+      Enum.find(@doc_type_keywords, &String.contains?(description, &1))
+    end)
+    |> case do
+      nil -> "income"
+      doc_type -> doc_type
+    end
   end
 
   # ---- generic tool invocation (constitution Principle VIII) ----

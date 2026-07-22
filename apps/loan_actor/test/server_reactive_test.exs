@@ -4,6 +4,14 @@ defmodule LoanActor.ServerReactiveTest do
   Taxonomy: happy / error / boundary. Each pipeline step (validate →
   PIIGuard → idempotency → transition → diary append) is tested in
   isolation, plus a full integration path (spawn → events → crash → replay).
+
+  Every test forces `:skills_dir` to a guaranteed-empty directory: FT-019
+  made `:goal_set` events trigger the planning loop (`maybe_trigger_planning/1`
+  in the shared `apply_event/3` path this file's tests exercise), and
+  without this, whichever real demo skill pack happens to be configured
+  could match and append extra diary entries these tests' exact-shape
+  assertions (written before FT-019 existed) don't expect. Planning-loop
+  behavior itself is FT-019's own concern — `test/server_planning_test.exs`.
   """
 
   use ExUnit.Case, async: false
@@ -22,6 +30,22 @@ defmodule LoanActor.ServerReactiveTest do
     # LoanActor.Idempotency's loan_idem table is always Mnesia (data-model.md),
     # independent of which DiaryStore backs the actual entries.
     :ok = MnesiaStore.init(dir: MnesiaTestSupport.dir())
+    :ok
+  end
+
+  setup do
+    previous_skills_dir = Application.get_env(:loan_actor, :skills_dir)
+    empty_dir = Factory.unique_tmp_dir("loan_actor_server_reactive_empty_skills")
+    File.mkdir_p!(empty_dir)
+    Application.put_env(:loan_actor, :skills_dir, empty_dir)
+
+    on_exit(fn ->
+      case previous_skills_dir do
+        nil -> Application.delete_env(:loan_actor, :skills_dir)
+        value -> Application.put_env(:loan_actor, :skills_dir, value)
+      end
+    end)
+
     :ok
   end
 
