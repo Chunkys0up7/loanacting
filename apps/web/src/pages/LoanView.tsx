@@ -139,6 +139,13 @@ export function LoanView({ loanId, baseUrl }: LoanViewProps) {
   return (
     <CopilotKit
       runtimeUrl={runtimeUrl}
+      // This page never depends on CopilotKit's own runtime connecting
+      // (see above) — its built-in AG-UI Inspector (enabled by default)
+      // would otherwise show a permanently-stuck "Connecting..." banner,
+      // which is misleading rather than useful here. showDevConsole is
+      // a different (deprecated) toggle for error toasts/banners only —
+      // enableInspector is what actually controls this panel.
+      enableInspector={false}
       onError={({ type, error }) => {
         // Deliberately not surfaced to the user (LoanViewInner's own
         // connectionError state is for our own ag-ui-client stream, which
