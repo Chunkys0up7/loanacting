@@ -4,7 +4,7 @@ The foundation milestone is **done** when every item below is ticked. PR descrip
 
 ## Functional
 
-- [ ] FT-001..FT-045 merged on `main` (FT-018b superseded by FT-044 per intent 0004).
+- [ ] FT-001..FT-048 merged on `main` (FT-018b superseded by FT-044 per intent 0004; FT-046..048 added by intent 0005).
 - [ ] Every self-initiated actor function goes through the tool registry; the demo skill pack triggers and its tool call renders in the UI as a `ToolCallCard` (SC-012/013/014).
 - [ ] Smoke checklist in `quickstart.md` passes manually on a fresh clone.
 - [ ] `iex -S mix` boots a single-node BEAM; `npm --prefix apps/web run dev` boots the SPA; visiting `/loans/L-DEMO` shows a live actor.
@@ -16,7 +16,7 @@ The foundation milestone is **done** when every item below is ticked. PR descrip
 - [ ] `mix test` green (all categories: happy, boundary, error, race, replay, security, contract, performance microbench).
 - [ ] `mix dialyzer` zero warnings.
 - [ ] `mix credo --strict` zero issues; custom checks `LoopTagging`, `NoLLM`, `NoDirectStateMutation` enabled and green.
-- [ ] `mix test.load` asserts NFR-001..NFR-005 green.
+- [ ] `mix test.load` asserts NFR-001..NFR-005 green **at default scale** (intent 0005 closed the NFR-001 gap `FT-035` found — this is no longer an accepted known gap).
 - [ ] `mix test test/llm_absence_test.exs` green (SC-009).
 - [ ] `npm --prefix apps/web test` green.
 - [ ] `npm --prefix apps/web run e2e` green (Playwright spawn-and-event, hitl, contract specs).
@@ -29,7 +29,7 @@ The foundation milestone is **done** when every item below is ticked. PR descrip
 - [ ] `plan.md` Constitution Check section re-checked and green (post-Phase-1 re-check filled in).
 - [ ] `analysis.md` shows no remaining open gaps.
 - [ ] `quickstart.md` commands are reproducible from a fresh clone (verified by CI smoke job).
-- [ ] All six `contracts/*.md` documents (incl. `tool-behaviour.md`, `skill-format.md` from 0004) reflect the implementation 1:1 (no drift).
+- [ ] All six `contracts/*.md` documents (incl. `tool-behaviour.md`, `skill-format.md` from 0004; `diary-store-behaviour.md`'s `append_with_dedup/4` from 0005) reflect the implementation 1:1 (no drift).
 - [ ] `README.md` points to the right places (quickstart, constitution, intents, CLAUDE.md).
 
 ## Constitution compliance

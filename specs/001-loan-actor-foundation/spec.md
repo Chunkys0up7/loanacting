@@ -10,6 +10,8 @@
 
 **Amended**: 2026-07-21 by intent [`0004-amend-agent-functions-tools-skills`](../../intents/0004-amend-agent-functions-tools-skills.md) — agent functions are tools + skills (FR-016..018, SC-013/014; FR-007 + SC-012 rewritten; `Procedure` entity superseded by `ToolSpec` + `Skill`).
 
+**Amended**: 2026-07-22 by intent [`0005-amend-reactive-pipeline-throughput`](../../intents/0005-amend-reactive-pipeline-throughput.md) — reactive pipeline throughput (FR-019 added; NFR-001 gap found by `FT-035`'s load test being closed; SC-015 added).
+
 **Constitution**: [`v1.2.0`](../../.specify/memory/constitution.md)
 
 ---
@@ -97,10 +99,11 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - **FR-016** *(0004)*: Every **self-initiated** actor function (periodic/planning-loop actions, HITL emission) MUST be a **tool**: a registered module implementing the `LoanActor.Tool` behaviour with a name, description, and JSON-schema'd parameters (restricted subset: `type`/`required`/`enum`/`properties`). Tool invocation MUST validate args against the schema, MUST pass args through the PII guard **before** diary hashing and before any UI emission, MUST produce diary entries `:tool_invoked` then `:tool_completed` or `:tool_failed`, and MUST return effects that the Server applies through `State.transition/2` — tools never mutate state directly. Inbound event ingestion (the reactive pipeline) is NOT a tool call. The registry holds zero routing/trigger logic.
 - **FR-017** *(0004)*: Operating knowledge MUST load as **skill packs**: directories under `priv/skills/<id>/` with a `SKILL.md` manifest (front-matter: `name`, `version`, `description` — the trigger, `tools_required`) plus optional reference files. The loader MUST validate every `tools_required` entry against the tool registry at load time (unresolvable pack → rejected with logged reason), MUST support reload without restart, and MUST trigger-match skills against the loan's `{status, event type, open goal descriptions}` (foundation: normalized substring matching). Skill activation appends a `:skill_activated` diary entry. Skill packs supersede the single-file Procedure stub.
 - **FR-018** *(0004)*: **Every** tool invocation MUST stream to subscribed AG-UI clients as `ToolCallStart` → `ToolCallArgs` (single frame, PII-redacted args) → `ToolCallEnd` → `ToolCallResult`. The HITL tool defers its `ToolCallResult` until the operator responds (`respond_hitl`); all other foundation tools emit the full sequence atomically per invocation.
+- **FR-019** *(0005)*: The reactive event pipeline's per-event storage work (duplicate-detection against `(loan_id, event_id, source)` plus the diary append it gates) MUST hold `NFR-001` at the full `SC-001` load profile. This MUST NOT weaken `FR-004` (duplicates still produce zero additional diary entries), `FR-005` (chain-link tamper detection), or `NFR-003` (crash-recovery correctness) — whichever storage-transaction shape achieves this (resolved in `clarifications.md` Q17 and pinned in `plan.md`) is an internal implementation detail, not a change to any externally observable contract in `contracts/loan-actor-api.md`.
 
 ### Non-Functional Requirements
 
-- **NFR-001**: P95 event-to-diary latency MUST be < 100 ms at 100 concurrent loans / 10 events/sec/loan.
+- **NFR-001**: P95 event-to-diary latency MUST be < 100 ms at 100 concurrent loans / 10 events/sec/loan. *(0005: `FT-035`'s load test found this did not hold at full scale — 496.64 ms p95 measured; see FR-019.)*
 - **NFR-002**: Resident memory MUST be < 256 MB under the NFR-001 load profile.
 - **NFR-003**: Crash-recovery time (kill → restart → rehydrated) MUST be < 1 second for a loan with up to 10,000 diary entries.
 - **NFR-004**: AG-UI event delivery from diary append to subscribed client MUST be < 250 ms p95 (LAN/loopback).
@@ -134,6 +137,7 @@ A loan in mid-process notices it cannot proceed without operator judgment (e.g.,
 - **SC-012** *(rewritten by 0004)*: Given a loan with goal `:require_document(:income)`, when the goal is set, the planning loop within one heartbeat invokes the `request_document` **tool**, producing the diary pair (`:tool_invoked`, `:tool_completed`) and the `ToolCallStart → ToolCallArgs → ToolCallEnd → ToolCallResult` sequence over AG-UI, with the request payload carried in `ToolCallResult`. (Verifies planning loop semantics independent of HITL.)
 - **SC-013** *(0004)*: Invoking any registered tool on a live loan produces `:tool_invoked` + terminal (`:tool_completed`/`:tool_failed`) diary entries and the four ToolCall events observed by a subscribed client within 250 ms p95. A synthetic-PII argument injected into a tool call appears in **neither** the diary payload nor any ToolCall frame. (Verifies FR-016/FR-018, PII rule.)
 - **SC-014** *(0004)*: The demo skill pack trigger-matches a loan in `:awaiting_documents` with an open document goal, appends `:skill_activated`, resolves `tools_required` against the registry, and its named tool executes; a loan in a non-matching state activates zero skills; a pack naming a nonexistent tool is rejected at load with a logged reason. (Verifies FR-017.)
+- **SC-015** *(0005)*: Re-running `FT-035`'s load test (`mix test.load`) at its default `LOAN_LOAD_*` scale (100 concurrent loans, 10 events/sec/loan, 60 seconds) shows p95 event-to-diary latency < 100 ms, with `NFR-002`/`NFR-003`/`NFR-004` continuing to pass in the same run. (Verifies FR-019, NFR-001.)
 
 ## Assumptions
 

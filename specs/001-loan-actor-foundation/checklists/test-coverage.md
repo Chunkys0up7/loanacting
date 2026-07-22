@@ -22,6 +22,7 @@ Per Constitution Principle V. Coverage is by **category**, not by percentage. A 
 - [ ] If two callers can interact with the same resource, a test exercises that overlap.
 - [ ] Tests use `Task.async_stream`, `:erlang.send_after`, or controlled scheduling to force interleavings.
 - [ ] For diary writes: parallel append to the same loan is tested (must serialize correctly).
+- [ ] *(0005)* `DiaryStore.append_with_dedup/4`'s concurrent-duplicate-delivery race is tested for both implementations: exactly one caller sees `:fresh`, all others see the same `{:duplicate, sequence}`.
 
 ### Replay
 - [ ] If the change adds or modifies a state-mutating handler, a test replays the diary and asserts byte-equal state.
@@ -50,6 +51,15 @@ Per Constitution Principle V. Coverage is by **category**, not by percentage. A 
 ### Performance
 - [ ] If the change could affect NFR budgets, `mix test.load` was run locally and the report attached to the PR description.
 - [ ] If the change is in a hot path (event ingestion, diary append, AG-UI emission), an explicit Benchee microbenchmark is added.
+- [ ] *(0005)* `mix test.load` run at its **default** `LOAN_LOAD_*` scale (not a reduced override) shows `NFR-001` p95 < 100 ms — a reduced-scale pass does not satisfy this gate.
+
+### Reactive pipeline throughput *(added by intent 0005)*
+- [ ] Duplicate delivery via `append_with_dedup/4` performs **zero** diary writes (only the fresh delivery writes).
+- [ ] A forced abort partway through the combined transaction (e.g. `entry_builder` or `Chain.verify_append/2` raising) leaves **zero** trace in *either* `loan_diary` or `loan_idem` — the whole point of collapsing to one transaction is that there is no partial/reservation state to leak; this test proves atomicity, it does not simulate the old two-phase design's failure mode (that design no longer exists).
+- [ ] `entry_builder` is exercised with `tail == nil` (a brand-new loan's first event through this path) as well as a real tail — genesis is a distinct boundary case.
+- [ ] Chain-link rejection still aborts correctly through the new path: a corrupted `prev_hash` fed to `append_with_dedup/4` aborts exactly like today's `append/2` does (regression check — same invariant, new code path).
+- [ ] `FT-034`'s property-based replay suite passes unmodified against the new code path (no diary entry shape changed; replay never touches `loan_idem`, so this is a non-regression gate, not new-logic coverage).
+- [ ] The old FT-015 race test in `test/idempotency_test.exs` is **replaced** by the new shared-behaviour-suite race test (FT-046, parameterized across both `DiaryStore` implementations), not kept alongside it — the transaction-scoped helpers that remain in `Idempotency` after FT-047 only ever run inside an already-open transaction, so they get narrow unit tests, not a duplicate race test.
 
 ## Process
 

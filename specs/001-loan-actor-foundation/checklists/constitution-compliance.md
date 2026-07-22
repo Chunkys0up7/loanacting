@@ -23,6 +23,7 @@ Every PR closing a task in [`tasks.md`](../tasks.md) MUST pass this checklist. P
 - [ ] No mutation or deletion of existing diary entries (verified by `verify_chain/1` running in CI).
 - [ ] PII never enters the diary (`PIIGuard` invoked; tested).
 - [ ] Replay test exists for any new state-mutating handler.
+- [ ] *(0005)* Reactive-path storage changes (`append_with_dedup/4`) keep duplicate-detection and diary-append indivisible — no implementation may commit one without the other, even under a mid-write crash.
 
 ### Principle V — Test-first, taxonomic coverage
 - [ ] PR description lists each applicable taxonomy category (happy/boundary/error/race/replay/regulatory/security) mapped to the test files added.
@@ -52,6 +53,7 @@ Every PR closing a task in [`tasks.md`](../tasks.md) MUST pass this checklist. P
 - [ ] No PII written to the diary (regex test green).
 - [ ] No code that breaks NFR budgets (load test green).
 - [ ] No new dep added without an entry in the relevant intent's Dependencies section.
+- [ ] *(0005)* `NFR-001` is measured at the load test's **default** scale, not a reduced `LOAN_LOAD_*` override, before this gate is considered satisfied.
 
 ## Anti-vibe
 - [ ] No `# TODO: come back to this` left in production code.

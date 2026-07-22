@@ -52,6 +52,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 
+*(Task list amended 2026-07-22 by intent 0005: FT-046..FT-048 added (Track 15, reactive pipeline throughput) — FT-046/FT-047 not yet started; FT-048 depends on both.)*
+
 ---
 
 ## Track 1 — Foundation skeleton
@@ -361,7 +363,29 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ---
 
-## Dependency graph (high-level, as amended by 0004)
+## Track 15 — Reactive pipeline throughput *(added by intent 0005)*
+
+### FT-046 — `DiaryStore.append_with_dedup/4` — behaviour + both implementations
+- Deliverable: `contracts/diary-store-behaviour.md` amended (new callback, done as part of this spec commit); `lib/loan_actor/diary/store.ex` gains the `@callback`; `lib/loan_actor/diary/mnesia.ex` implements it as a dirty-read peek + one combined `:mnesia.transaction/1` (dedup-check + tail-read + chain-verify + diary write + idem write); `lib/loan_actor/diary/file.ex` implements it by delegating to the pre-0005 separate-calls shape (idempotency is always Mnesia-backed regardless of diary backend).
+- Tests: extend `test/support/diary_store_shared.ex` (parameterized, both implementations) with: fresh-then-duplicate; concurrent-duplicate-delivery race (exactly one `:fresh` winner — this test **replaces** `test/idempotency_test.exs`'s existing FT-015 race test outright, it does not run alongside it); duplicate-produces-zero-diary-writes; forced-abort-mid-transaction leaves zero trace in either table (proves atomicity — not a simulation of the old two-phase design's failure mode, which no longer exists); `entry_builder` called with `tail == nil` (genesis) as well as a real tail; chain-link rejection (bad `prev_hash`) still aborts through this path same as plain `append/2`. Optional: a Benchee microbenchmark (single loan, sequential events, no concurrency) comparing transaction count/latency against the pre-0005 shape, for fast iteration ahead of FT-048's full load test.
+- Taxonomy: happy / boundary / race / replay / error / contract.
+- Depends on: FT-006 (shared store suite), FT-007, FT-008, FT-015.
+
+### FT-047 — `LoanActor.Server` reactive path onto `append_with_dedup/4`; retire two-phase `Idempotency` API
+- Deliverable: `lib/loan_actor/server.ex`'s `handle_clean_event/3`/`apply_event/3` call `store.append_with_dedup/4` once per event (builder closure captures the already-computed `State.transition/2` result / `IllegalTransitionError` rescue path, unchanged); `lib/loan_actor/idempotency.ex`'s public `check_and_record/3` + `record_sequence/4` are retired in favor of transaction-scoped helpers consumed only from `Diary.Mnesia` (FT-046).
+- Tests: `test/server_reactive_test.exs` updated for the new call shape; `test/idempotency_test.exs` updated to unit-test the transaction-scoped helpers directly (narrow, not a race test — they only ever run inside an already-open transaction, so concurrency correctness is fully covered by FT-046's shared-suite race test, not re-tested here); FT-034's property-based replay suite re-run and must stay green with no changes required (diary entry shapes are unchanged; replay never touches `loan_idem`, so this is a non-regression gate, not coverage of the new logic).
+- Taxonomy: happy / replay / error / regression.
+- Depends on: FT-046, FT-017.
+
+### FT-048 — Re-run `FT-035` load test as the acceptance gate (SC-015)
+- Deliverable: `mix test.load` green at default `LOAN_LOAD_*` scale (100 loans, 10 events/sec/loan, 60 s) — p95 event-to-diary latency < 100 ms; `NFR-002`/`NFR-003`/`NFR-004` unregressed in the same run. `apps/loan_actor/test/load/nfr_load_test.exs`'s moduledoc updated to record the outcome (the "genuine gap" callout from the `FT-035` commit is corrected/closed, referencing intent 0005) — no new load-test file; this is the same test, re-run.
+- Tests: none new — the existing load test is the test.
+- Taxonomy: performance (treated as boundary, matching FT-035's own precedent).
+- Depends on: FT-047.
+
+---
+
+## Dependency graph (high-level, as amended by 0004, 0005)
 
 ```
 FT-001 ─► FT-002 ─► (most others)
@@ -373,6 +397,8 @@ FT-017 ─► FT-025, FT-027, FT-028
 FT-041 ─► FT-023 ─► FT-024 ─► FT-025
 FT-029 ─► FT-030 + FT-031 ─► FT-032 ─► FT-033, FT-045 ─► FT-038
 FT-017 + FT-027 + FT-032 ─► FT-040
+FT-006 + FT-007 + FT-008 + FT-015 ─► FT-046 ─► FT-047 ─► FT-048           ← 0005, after FT-017 exists
+FT-017 ─► FT-047
 ```
 
 ## Parallel batches the agent may attempt
@@ -382,6 +408,7 @@ FT-017 + FT-027 + FT-032 ─► FT-040
 - Batch B2 (after FT-041): FT-042 → FT-043 `[P]` FT-044 (FT-043's state-effecting tools also need FT-010/011/014).
 - Batch C (after FT-017 + FT-043 + FT-044): FT-018 `[P]` FT-019 `[P]` FT-025.
 - Batch D (after FT-023): FT-024 `[P]` FT-031.
+- Batch E (0005, after FT-017 + FT-046): FT-047 → FT-048. (Not parallelizable — each depends on the prior.)
 
 `/speckit-implement` selects batches respecting the graph.
 
@@ -391,19 +418,20 @@ FT-017 + FT-027 + FT-032 ─► FT-040
 |---|---|
 | Happy | All production tasks. |
 | Boundary | FT-005, FT-010, FT-013, FT-014, FT-018, FT-023, FT-024, FT-032, FT-041, FT-044, FT-045. |
-| Error | FT-005, FT-011, FT-013, FT-014, FT-016, FT-021, FT-026, FT-028, FT-033, FT-039, FT-041, FT-042, FT-044, FT-045. |
-| Race | FT-008, FT-015, FT-019, FT-024, FT-025, FT-028. |
-| Replay | FT-007, FT-008, FT-009, FT-034 (incl. tool-entry replay), FT-036, FT-043. |
+| Error | FT-005, FT-011, FT-013, FT-014, FT-016, FT-021, FT-026, FT-028, FT-033, FT-039, FT-041, FT-042, FT-044, FT-045, FT-046, FT-047. |
+| Race | FT-008, FT-015, FT-019, FT-024, FT-025, FT-028, FT-046, FT-047. |
+| Replay | FT-007, FT-008, FT-009, FT-034 (incl. tool-entry replay), FT-036, FT-043, FT-046, FT-047. |
 | Security | FT-005, FT-014, FT-021, FT-022 (extended to `lib/loan_actor/tools/`), FT-026, FT-027, FT-043 (PII order-of-operations). |
-| Contract | FT-006, FT-023 (15 snapshots), FT-030, FT-038 (incl. ToolCall frames), FT-041, FT-042, FT-044. |
-| Performance | FT-035 (with tool ceremony on), FT-036. |
+| Contract | FT-006, FT-023 (15 snapshots), FT-030, FT-038 (incl. ToolCall frames), FT-041, FT-042, FT-044, FT-046. |
+| Performance | FT-035 (with tool ceremony on), FT-036, FT-048. |
 
 Every applicable category has at least one task → SC-008 satisfied.
 
 ## Definition of done (foundation)
 
-- All FT-001..FT-045 PRs merged (FT-018b superseded by FT-044; intent 0004 tasks are part of this spec).
+- All FT-001..FT-048 PRs merged (FT-018b superseded by FT-044; intent 0004/0005 tasks are part of this spec).
 - CI green on `main` for: `mix test`, `mix dialyzer`, `mix credo --strict`, `mix test.load`, `npm test`, Playwright e2e (including the contract test), and the smoke check.
 - Quickstart smoke checklist passes manually.
 - Constitution v1.0.0 still passes the matrix in `analysis.md`.
 - Intent 0001 status updated to `Implemented`.
+- `NFR-001` genuinely holds at full `SC-001` scale (`FT-048`/SC-015) — not just documented as a known gap.

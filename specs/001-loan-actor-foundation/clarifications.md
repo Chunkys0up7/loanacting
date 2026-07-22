@@ -112,6 +112,12 @@ Both implementations MUST pass the same property-based test suite.
 - The Event struct gains `source` as a required field with a fixed enum (foundation: `:operator`, `:system`, `:test`). Adding new sources requires an amendment.
 - The idempotency check is a Mnesia `read` keyed on `{loan_id, event_id, source}` within the transaction that would append the diary entry. Hit → no-op + return `:duplicate`.
 
+**Addendum (2026-07-22, intent 0005).** `FT-017`'s Q13 below split this single-transaction
+design into two separate Mnesia transactions plus the diary append's own third transaction —
+a drift from what's resolved here that a load test later showed doesn't hold `NFR-001` at
+scale. Intent 0005 / Q17 restores a single-transaction shape (the composite key and
+`:duplicate` semantics above are unchanged).
+
 ---
 
 ## Q7 — Operator authentication for foundation
@@ -231,6 +237,14 @@ PD-1 this was raised directly rather than guessed. Confirmed: extend the record.
   extremely narrow failure mode neither source document addresses; not building
   compensating-transaction logic for it.
 
+**Addendum (2026-07-22, intent 0005).** `FT-035`'s load test found this two-phase design
+(three Mnesia transactions per event, counting the diary append) costs more throughput than
+`NFR-001`'s budget allows at full scale. Intent 0005 / Q17 collapses this back to one
+transaction — which also closes the "known, accepted limitation" above outright, since a
+single all-or-nothing transaction never leaves a partially-reserved key on the table. The
+`{received_at, sequence}` value shape and the `{:duplicate, sequence}` return contract this Q
+locked are unchanged.
+
 ---
 
 ## Q14 — Where do a skill-triggered tool's arguments come from? *(FT-018, 2026-07-21)*
@@ -312,6 +326,68 @@ sufficient in practice.
 
 ---
 
+## Q17 — Reactive pipeline throughput fix *(intent 0005, 2026-07-22)*
+
+**Resolution: collapse the three per-event Mnesia transactions (idempotency reserve, diary
+append, idempotency fill) into one.** A cheap `:mnesia.dirty_read/2` duplicate-peek runs
+first (no transaction cost); only a non-duplicate event enters a single real
+`:mnesia.transaction/1` that re-checks the key, computes the diary entry, verifies chain
+linkage, writes the diary entry, and writes the final `{received_at, sequence}` idempotency
+record — all atomically. Mnesia-level tuning (Q4 of intent 0005's open questions;
+`dump_log_write_threshold` was already raised by `FT-035`) is evaluated opportunistically
+alongside this but is not itself the primary fix. Batching/pipelining (Q3) and moving
+idempotency off Mnesia entirely (Q2) are explicitly **not** adopted in this pass.
+
+**Rationale.** Intent 0005 posed four candidate directions (Q1: collapse transactions; Q2:
+ETS-backed dedup with async Mnesia persistence; Q3: batch/pipeline writes; Q4: Mnesia tuning
+alone). Q2 was rejected outright: `LoanActor.Diary.Entry` carries no `event_id`/`source`
+field today, so an ETS-only dedup table cannot be reconstructed from diary replay after a
+crash without a `data-model.md` change to the diary entry shape itself — a bigger, riskier
+change than this intent's scope, and one that trades a durability guarantee for throughput
+without the constraints section's required explicit justification. Q3 was deferred: nothing
+in the current design requires cross-event batching, and intent 0005's own non-goals rule out
+building a general-purpose batching framework speculatively; it stays available as a
+follow-up if Q1 alone doesn't clear the budget. Q4 alone was judged insufficient on its own
+(the load test's root-cause analysis points at transaction *count*, not disk-log tuning, as
+the dominant cost) but costs nothing to apply alongside Q1.
+
+Q1 was chosen because it is the smallest change that removes the actual bottleneck
+(transaction count 3 → 1 per event), reinstates what Q6 originally specified before `FT-017`
+split it, requires no data-model change, and — as a direct side effect — eliminates the
+orphaned-reservation known limitation `FT-017`'s Q13 accepted. It does not, by itself,
+guarantee the full 496.64 ms → <100 ms improvement `NFR-001` needs (a 3x reduction in
+transaction *count* is not proven to be a 3x reduction in *latency*); `SC-015`'s re-run of
+`FT-035`'s load test is the actual acceptance gate. If Q1 alone does not clear the budget,
+this clarification is revisited and Q3/Q4 are escalated in a follow-up amendment rather than
+declaring victory on transaction-count reduction alone.
+
+**Locked decisions.**
+- `contracts/diary-store-behaviour.md` gains a new `DiaryStore` callback,
+  `append_with_dedup/4`, taking `(loan_id, event_id, source, entry_builder)` where
+  `entry_builder` is a function from the current tail (`entry | nil`) to the `%Entry{}` to
+  write if the event is fresh. Returns `{:fresh, sequence, entry}` or
+  `{:duplicate, sequence}` — never both a diary append and a `:duplicate` result.
+- `LoanActor.Diary.Mnesia`'s implementation performs the dirty-read peek, then the single
+  combined transaction described above.
+- `LoanActor.Diary.File`'s implementation keeps today's separate idempotency-then-append
+  shape internally (File has no Mnesia transaction to fold into, and File is a test-only
+  backend per `research.md`/`NFR-005` — `NFR-001` is measured against Mnesia specifically,
+  per `FT-035`'s own moduledoc). Both implementations satisfy the same external contract,
+  preserving `NFR-005`'s "switching requires zero changes outside the implementation module."
+- `LoanActor.Server`'s reactive path (`handle_clean_event`/`apply_event`) calls
+  `store.append_with_dedup/4` once per event instead of separately calling
+  `Idempotency.check_and_record/3`, `append_entry/4`, and `Idempotency.record_sequence/4`.
+  `State.transition/2` (pure, no I/O) still runs before the storage call, exactly as today,
+  to determine which entry type/payload the builder function writes on the fresh path.
+- `LoanActor.Idempotency`'s two-phase public API (`check_and_record/3` + `record_sequence/4`)
+  is retired in favor of transaction-scoped helper functions consumed only by
+  `Diary.Mnesia`'s new combined-transaction code path; the composite-key concept and
+  `{:duplicate, sequence}` semantics move with it, unchanged.
+- The existing race test proving exactly-one-`:fresh`-winner under concurrent duplicate
+  delivery (`FT-015`) is re-verified against the new single-transaction shape, not dropped.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |
@@ -328,5 +404,6 @@ sufficient in practice.
 | HITL mechanism | `request_operator_approval` tool (deferred ToolCallResult) + AG-UI `CustomEvent` + CopilotKit `useHumanInTheLoop` *(0004)* |
 | Agent functions | Tools (typed, registry-listed, effects-returning) + skill packs (`priv/skills/`, trigger = `description`) *(0004)* |
 | Tool invocation surface | Internal-only; no public invoke API *(0004, Q8)* |
+| Reactive pipeline storage shape | One combined Mnesia transaction per event (`append_with_dedup/4`), replacing the prior three-transaction (reserve / append / fill) shape *(0005, Q17)* |
 
 These decisions become inputs to `/speckit-plan`.

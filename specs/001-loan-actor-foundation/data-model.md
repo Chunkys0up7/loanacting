@@ -148,6 +148,12 @@ loan_idem   set         disc_copies   {{loan_id, event_id, source}, {received_at
 
 Schema migrations are out of scope for foundation. A future intent will introduce migrations.
 
+**Reactive-path transaction shape *(0005)*.** The schema above is unchanged, but how the
+reactive pipeline writes to it is: `loan_diary` and `loan_idem` writes for a single inbound
+event are performed inside **one** Mnesia transaction (`DiaryStore.append_with_dedup/4`,
+`contracts/diary-store-behaviour.md`), not three separate transactions. See `clarifications.md`
+Q17 for the full rationale; this closes the gap `FT-035`'s load test found in `NFR-001`.
+
 ---
 
 ## State machine
