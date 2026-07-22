@@ -37,7 +37,9 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-043 | DONE | `FT-043` commit |
 | FT-044 | DONE | `FT-044` commit |
 | FT-018 | DONE | `FT-018` commit |
-| FT-020 | DONE | this commit |
+| FT-020 | DONE | `FT-020` commit |
+| FT-021 | DONE | this commit |
+| FT-022 | DONE | this commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
 

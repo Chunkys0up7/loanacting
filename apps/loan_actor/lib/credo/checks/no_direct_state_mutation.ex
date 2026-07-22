@@ -95,8 +95,15 @@ defmodule LoanActor.Credo.NoDirectStateMutation do
 
   # ---- generic recursion (context does not leak to siblings) ----
 
-  defp walk({_form, _meta, args}, ctx, issue_meta) when is_list(args) do
-    {collect(args, ctx, issue_meta), ctx}
+  defp walk({form, _meta, args}, ctx, issue_meta) when is_list(args) do
+    # `form` matters for remote calls / dot-access: `Module.fn(x)` and
+    # `expr.field` are both AST `{{:., _, [target, name]}, _, args}` — a
+    # struct-update expression used as the call target or dot-access
+    # receiver lives INSIDE `form`, not `args`, and would otherwise never
+    # be visited (an atom `form`, e.g. `:def`, is harmless — it just falls
+    # through to the leaf catch-all below).
+    {form_issues, _} = walk(form, ctx, issue_meta)
+    {form_issues ++ collect(args, ctx, issue_meta), ctx}
   end
 
   defp walk(list, ctx, issue_meta) when is_list(list) do

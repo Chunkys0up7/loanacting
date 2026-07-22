@@ -165,6 +165,19 @@ defmodule LoanActor.Credo.NoDirectStateMutationTest do
       assert issue2.line_no == 3
     end
 
+    test "a struct update used as a remote-call target is still flagged (regression: `form` was unwalked)" do
+      source = ~S"""
+      defmodule LoanActor.SomeOtherModule do
+        def bump(state) do
+          IO.inspect(%LoanActor.State{state | version: state.version + 1}.version)
+        end
+      end
+      """
+
+      assert [issue] = run(source)
+      assert issue.line_no == 3
+    end
+
     test "a same-named struct aliased from a DIFFERENT module is not confused with LoanActor.State" do
       source = ~S"""
       defmodule LoanActor.SomeOtherModule do

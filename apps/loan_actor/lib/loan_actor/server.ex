@@ -26,7 +26,7 @@ defmodule LoanActor.Server do
   clock (started once in `init/1`), every `config :loan_actor, :heartbeat_ms`
   (default 60_000; test env overrides to 100 for fast cadence tests,
   SC-011). A fixed external timer — rather than a `Process.send_after`
-  self-reschedule from each handler's OWN completion — keeps cadence
+  self-reschedule from when each handler finishes — keeps cadence
   accurate regardless of how long any single heartbeat's processing takes
   (diary I/O, tool invocation, skill loading from disk); a
   self-rescheduling design would accumulate drift proportional to that
