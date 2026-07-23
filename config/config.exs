@@ -15,6 +15,7 @@ config :loan_actor,
   http_port: 4000,
   # Foundation tool set (FT-043, contracts/tool-behaviour.md); test files may
   # override locally (Application.put_env) to inject fixtures instead.
+  # Decision-harness tools (intent 0003, ADH-002+) appended below.
   tools: [
     LoanActor.Tools.SetGoal,
     LoanActor.Tools.SatisfyGoal,
@@ -22,7 +23,8 @@ config :loan_actor,
     LoanActor.Tools.TransitionState,
     LoanActor.Tools.AppendNote,
     LoanActor.Tools.RequestOperatorApproval,
-    LoanActor.Tools.VerifyDiaryChain
+    LoanActor.Tools.VerifyDiaryChain,
+    LoanActor.Tools.AssessLoan
   ],
   # PII guard for tool args (FT-014 wired per constitution Principle VIII).
   tool_pii_guard: {LoanActor.PIIGuard, :apply}

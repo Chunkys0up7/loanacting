@@ -28,6 +28,7 @@ defmodule LoanActor.Factory do
   struct, only their hashes do.
   """
 
+  alias LoanActor.Assessment
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
@@ -799,5 +800,47 @@ defmodule LoanActor.Factory do
         StreamData.constant(entries)
       end)
     end)
+  end
+
+  # ---- Assessment factories (intent 0003, ADH-002) ----
+
+  @doc """
+  Valid attribute map for `LoanActor.Assessment.new/1`. Defaults produce a
+  neutral assessment (unknown completeness, no goal ages, n/a SLA) for a
+  fresh loan at version 0.
+  """
+  @spec assessment_attrs(map() | keyword()) :: map()
+  def assessment_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        loan_id: unique_loan_id(),
+        document_completeness: :unknown,
+        goal_ages: %{},
+        sla_state: :n_a,
+        data_quality_flags: [],
+        computed_at_version: 0
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.Assessment{}` from `assessment_attrs/1`."
+  @spec assessment(map() | keyword()) :: Assessment.t()
+  def assessment(overrides \\ %{}), do: Assessment.new(assessment_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `LoanActor.Assessment.new/1` attribute maps —
+  `{label, attrs}`. Each raises `ArgumentError`.
+  """
+  @spec invalid_assessment_variants() :: [{atom(), map()}]
+  def invalid_assessment_variants do
+    [
+      {:bad_document_completeness, assessment_attrs(%{document_completeness: :maybe})},
+      {:bad_goal_ages_not_map, assessment_attrs(%{goal_ages: []})},
+      {:bad_goal_ages_negative, assessment_attrs(%{goal_ages: %{"G-1" => -1}})},
+      {:bad_sla_state, assessment_attrs(%{sla_state: :overdue})},
+      {:bad_data_quality_flags, assessment_attrs(%{data_quality_flags: ["not_an_atom"]})},
+      {:bad_version_negative, assessment_attrs(%{computed_at_version: -1})}
+    ]
   end
 end
