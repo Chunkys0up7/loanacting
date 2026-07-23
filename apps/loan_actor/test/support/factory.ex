@@ -32,6 +32,7 @@ defmodule LoanActor.Factory do
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
+  alias LoanActor.Gate
   alias LoanActor.Goal
   alias LoanActor.HITLRequest
   alias LoanActor.HITLResponse
@@ -841,6 +842,84 @@ defmodule LoanActor.Factory do
       {:bad_sla_state, assessment_attrs(%{sla_state: :overdue})},
       {:bad_data_quality_flags, assessment_attrs(%{data_quality_flags: ["not_an_atom"]})},
       {:bad_version_negative, assessment_attrs(%{computed_at_version: -1})}
+    ]
+  end
+
+  # ---- Gate factories (intent 0003, ADH-003) ----
+
+  @doc """
+  Valid attribute map for `LoanActor.Gate.new/1` — front-matter-decoded
+  shape (string keys inside `rule`, mirroring how the loader hands
+  `LoanActor.Skill.Loader`-parsed content to `Gate.new/1`). Defaults to a
+  single `eq` predicate checking `assessment.document_completeness`.
+  """
+  @spec gate_attrs(map() | keyword()) :: map()
+  def gate_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        gate_id: "document-completeness",
+        version: "1.0.0",
+        pack_id: "0002-demo-gate-pack",
+        rule: %{
+          "combinator" => "all",
+          "predicates" => [
+            %{"field" => "assessment.document_completeness", "op" => "eq", "value" => "complete"}
+          ]
+        }
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.Gate{}` from `gate_attrs/1`. Raises if invalid (test convenience; `Gate.new/1` itself returns `{:ok, _} | {:error, _}`)."
+  @spec gate(map() | keyword()) :: Gate.t()
+  def gate(overrides \\ %{}) do
+    {:ok, gate} = Gate.new(gate_attrs(overrides))
+    gate
+  end
+
+  @doc """
+  Catalog of invalid `LoanActor.Gate.new/1` attribute maps — `{label, attrs}`.
+  Each returns `{:error, _}` (never raises; mirrors the loader's own
+  reject-with-reason discipline).
+  """
+  @spec invalid_gate_variants() :: [{atom(), map()}]
+  def invalid_gate_variants do
+    [
+      {:missing_gate_id, gate_attrs(%{gate_id: nil}) |> Map.delete(:gate_id)},
+      {:missing_rule, gate_attrs() |> Map.delete(:rule)},
+      {:bad_combinator, gate_attrs(%{rule: %{"combinator" => "xor", "predicates" => []}})},
+      {:empty_predicates, gate_attrs(%{rule: %{"combinator" => "all", "predicates" => []}})},
+      {:bad_op, gate_attrs(%{
+         rule: %{
+           "combinator" => "all",
+           "predicates" => [%{"field" => "assessment.sla_state", "op" => "matches", "value" => "on_track"}]
+         }
+       })},
+      {:missing_value_for_eq,
+       gate_attrs(%{
+         rule: %{
+           "combinator" => "all",
+           "predicates" => [%{"field" => "assessment.sla_state", "op" => "eq"}]
+         }
+       })},
+      {:nested_two_levels_deep,
+       gate_attrs(%{
+         rule: %{
+           "combinator" => "all",
+           "predicates" => [
+             %{
+               "combinator" => "any",
+               "predicates" => [
+                 %{
+                   "combinator" => "all",
+                   "predicates" => [%{"field" => "assessment.sla_state", "op" => "present"}]
+                 }
+               ]
+             }
+           ]
+         }
+       })}
     ]
   end
 end

@@ -58,7 +58,13 @@ rule:
   function calls.
 - **`op`**: one of `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `present`, `absent`, `contains`.
   `present`/`absent` take no `value`; every other op requires one.
-- **`value`**: a literal — string, number, boolean, or (for `contains` only) a list of literals.
+- **`value`**: always a scalar literal — string, number, or boolean. For `contains`
+  specifically, `field` is expected to resolve to a LIST (e.g.
+  `assessment.data_quality_flags`) and `value` is the single scalar checked for
+  membership in it — corrected during `/speckit-implement` (ADH-003): an earlier draft of
+  this line said `contains`'s own `value` could itself be a list, which didn't match the
+  actual, more useful semantics ("does this list field contain this one thing") the
+  implementation and its tests settled on.
 - **`combinator`**: `all` (every predicate must pass) or `any` (at least one must pass). Nests
   exactly one level: a predicate list may itself contain a nested `{combinator, predicates}`
   map instead of a leaf predicate, but that nested map's own `predicates` MUST be leaf
