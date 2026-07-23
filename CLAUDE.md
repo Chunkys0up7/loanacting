@@ -70,51 +70,56 @@ Architecture invariants (load-bearing — do not weaken without an amendment int
 
 ---
 
-## 2. Project state (snapshot 2026-07-21, updated later same day — update this section when it drifts)
+## 2. Project state (snapshot 2026-07-23 — update this section when it drifts)
 
 **Where truth lives** (check these at session start, in order):
 1. Status ledger in [`specs/001-loan-actor-foundation/tasks.md`](specs/001-loan-actor-foundation/tasks.md) — which FT tasks are DONE.
-2. [`work-log/sessions.md`](work-log/sessions.md) — gitignored session narrative, newest first. Append an entry every session; never edit prior entries.
-3. `git log` / open PRs on `Chunkys0up7/loanacting`.
+2. [`specs/001-loan-actor-foundation/{audit,report,test-evidence}.md`](specs/001-loan-actor-foundation/) — the closeout record: FR/NFR/SC → proof, deviations, load-test actuals.
+3. [`work-log/sessions.md`](work-log/sessions.md) — gitignored session narrative, newest first. Append an entry every session; never edit prior entries.
+4. `git log` / open PRs on `Chunkys0up7/loanacting`.
 
 **Intents:**
 
 | Intent | Status | What |
 |---|---|---|
-| 0001 foundation-loan-as-actor | Specified → implementing | The runtime foundation (spec 001, FT-001..FT-045) |
-| 0002 amend: post-impl audit cycle | Specified | Constitution v1.1.0 — closeout artifacts (§7b) |
-| 0003 autonomous-decision-harness | Draft, **uncommitted** | Gates-as-tools decision layer; enters `/speckit-specify` only after 0001 is Implemented |
-| 0004 amend: tools + skills | Specified | Constitution v1.2.0 Principle VIII; spec 001 amended in place |
+| 0001 foundation-loan-as-actor | **Closed** (2026-07-23) | The runtime foundation (spec 001, FT-001..FT-040). See its Retrospective section + the three closeout artifacts. |
+| 0002 amend: post-impl audit cycle | Specified (substantively landed — constitution is v1.2.0, this section itself is the cycle in use; status field not yet reconciled) | Constitution v1.1.0+ — closeout artifacts (§7b) |
+| 0003 autonomous-decision-harness | Draft, **uncommitted** | Gates-as-tools decision layer; now unblocked — 0001 is Closed (a superset of Implemented) — enters `/speckit-specify` whenever picked up |
+| 0004 amend: tools + skills | Specified (substantively landed — constitution v1.2.0 Principle VIII, spec 001 amended in place; status field not yet reconciled) | |
+| 0005 amend: reactive-pipeline-throughput | **Abandoned** (2026-07-23) | NFR-001's fix (`FT-046`/`FT-047`) was reverted as a regression; a same-hardware Windows-vs-Linux investigation during 0001's closeout then found the original 496ms gap doesn't reproduce on Linux at all (~48-68x faster on two independent Linux environments) — very likely a local-dev-machine artifact, not an architectural one. See `clarifications.md` Q17 Addenda 2+3 and the intent's own Closing note. |
 
-**Implementation state (spec 001):** DONE — FT-001..FT-017, FT-041..FT-044 (everything
-through Track 5's reactive loop plus the full tool+skill layer): umbrella/deps/credo/CI,
-diary Entry/Chain/Store/File/Mnesia + shared suite, State+Goal+transition/2+Model,
-NoDirectStateMutation Credo check (real AST walk), Event+validate/1, PIIGuard (hard gate)
-+ pii_patterns.yml, Idempotency (carries diary sequence — clarifications Q13),
-Supervisor+Registry+Application, **Server reactive loop is alive**: `LoanActor.spawn/1` →
-`send_event/2` runs validate → PIIGuard → idempotency → transition → diary append
-atomically, crash-recovery rehydration replays the diary, all proven by an end-to-end
-integration test. Tool layer: `Tool`/`Tool.Spec`/`Tool.Context`, config-driven `Registry`,
-the 7 foundation tools (`set_goal`, `satisfy_goal`, `request_document`, `transition_state`,
-`append_note`, `request_operator_approval`, `verify_diary_chain`), `Skill`/`Skill.Loader` +
-the demo pack. FT-018b superseded by FT-044.
+**Implementation state (spec 001): DONE, spec CLOSED.** Every tracked task FT-001..FT-040 is
+merged (status ledger in `tasks.md`); `FT-046`/`FT-047` were implemented then reverted (0005,
+above) and are correctly NOT part of the merged tree. Full backend (diary, state machine,
+three-loop Server, tool+skill layer, HTTP API, HITL) and frontend (LoanView + all surfaces,
+AG-UI client, e2e specs) exist and are tested. CI is genuinely green (fixed during closeout —
+see below) as of commit `3059c10`.
 
-**Next in dependency order:** FT-018 (periodic/heartbeat loop) ∥ FT-019 (planning loop) —
-both now unblocked (needed FT-017+FT-043+FT-044, all done) — then FT-020/021 (remaining
-Credo check AST walks), FT-022 (LLM-absence grep test), FT-023 (AG-UI encoder, 15 event
-types), FT-025..028 (HTTP + HITL), FT-029+ (frontend, currently just a scaffold stub),
-FT-034+ (property/load tests) per the amended graph in tasks.md.
+**Two real, open deviations from the closeout audit** (neither blocks anything; both need a
+follow-up amendment before touching the affected code again):
+1. **Goal content does not survive a crash.** `rehydrate/2` never reconstructs `state.goals`
+   from the diary — the `set_goal` tool's diary entries are hash-only by design (Principle
+   VIII), so goal text has no recoverable trace once the process dies. Status/version survive
+   perfectly; goal descriptions specifically do not. Needs an amendment deciding whether goal
+   text needs a non-hash-only diary path.
+2. **NFR-002 (memory < 256MB) appears core-count-sensitive.** Passes on a small CI runner
+   (179MB) but fails on a 32-core machine (366MB) for the identical test — likely BEAM's own
+   default scheduler/allocator overhead scaling with core count, not the application's actual
+   per-loan footprint. Needs re-measurement with explicit `+S` scheduler flags, or reframing
+   the budget as per-loan marginal memory rather than a flat absolute figure.
 
-**Genuine spec ambiguities resolved this session (see clarifications.md Q12/Q13 for full
-reasoning — read before touching PIIGuard or Idempotency):** PIIGuard is a hard gate, not
-redact-and-continue; Idempotency's `loan_idem` record carries the diary sequence via a
-reserve-then-fill two-phase design. Also fixed: the FT-042 registry's `tool_pii_guard` slot
-now matches `PIIGuard.apply/1`'s real 3-shape return exactly.
+**CI note**: `.github/workflows/ci.yml`/`ci-nightly.yml` had a real bug (found during 0001's
+closeout) — any use of `hashFiles()` anywhere in either file made GitHub reject the whole
+workflow file at parse time, so **zero CI runs ever scheduled a job, on any push, before
+2026-07-23**. Fixed by removing all `hashFiles()` calls (they were unnecessary scaffolding
+anyway, now that every guarded file exists unconditionally). If you're debugging a "CI never
+ran" symptom again, check for `hashFiles()` first.
 
 **Repo map:** `apps/loan_actor` (Elixir OTP app — lib, test, priv/skills) ·
-`apps/web` (Vite/React/TS + CopilotKit — scaffold incomplete, FT-029) ·
+`apps/web` (Vite/React/TS + CopilotKit SPA, fully wired) ·
 `intents/` · `specs/001-loan-actor-foundation/` (spec, plan, data-model, contracts×6,
-checklists×5, tasks + ledger) · `.specify/memory/constitution.md` · `work-log/` (gitignored).
+checklists×5, tasks + ledger, audit/report/test-evidence) · `.specify/memory/constitution.md`
+· `work-log/` (gitignored).
 
 ---
 

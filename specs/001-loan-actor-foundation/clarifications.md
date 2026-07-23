@@ -427,6 +427,35 @@ it is a **regression**, not an improvement:
   (`FT-035`'s "honestly reported gap, not worked around"), this is reported as-is rather than
   declaring victory on a reverted change.
 
+**Addendum 3 (2026-07-23, intent 0001's closeout audit).** The 496.64ms measurement this whole
+intent is built on turned out to be specific to the local Windows development machine used for
+`FT-035`'s original measurement and every re-run through Addendum 2 above — not a property of
+the reactive pipeline's architecture. Three measurements of the identical unmodified (pre-0005,
+three-transaction) code, escalating in rigor:
+
+- Local Windows dev machine: 496.64ms p95 — fails (the number this whole intent responds to).
+- GitHub-hosted Linux CI runner (small, shared VM): 7.3ms p95 — passes, ~68x faster.
+- A Linux container (`hexpm/elixir:1.17.3-erlang-27.3.4.7-debian-bookworm` — byte-for-byte
+  matching this project's `.tool-versions` pin) run on the **same physical machine** as the
+  failing Windows measurement: 10.23ms p95 — passes, ~48x faster than Windows-native on
+  identical hardware.
+
+The third measurement is the one that settles it: same CPU, same disks, same Elixir/OTP patch
+version, only the operating system changed, and the result is still comfortably inside budget.
+A ~48x gap under a controlled same-hardware comparison is not measurement noise. Windows
+Defender's real-time monitoring was confirmed active on the machine with no exclusion configured
+for the repository path — consistent with, though not exhaustively proven as, AV-scanning
+overhead on Mnesia's `disc_copies` writes under sustained concurrent load being the dominant
+cost, rather than the transaction *count* this intent's whole Problem statement is built around.
+
+This does not change the FT-046/FT-047 revert decision (Addendum 2) — that was a valid
+same-machine relative comparison and stands regardless of the absolute numbers' inflation. It
+does mean the architectural work this intent proposes (Q1/Q3/Q4 above) is very likely
+unnecessary: NFR-001 appears to already hold on every real (Linux) environment tested, including
+one that is hardware-identical to the machine that first reported the gap. Intent 0005 moves to
+`Abandoned` (not `Implemented`) on this basis — see the intent file's own closing note for the
+full reasoning and what would need to be true to reopen it.
+
 ---
 
 ## Summary of locked architectural decisions

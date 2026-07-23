@@ -2,10 +2,11 @@
 id: "0005"
 slug: amend-reactive-pipeline-throughput
 title: Reactive event pipeline misses its latency budget at production scale — collapse per-event Mnesia transaction overhead
-status: Specified
+status: Abandoned
 author: cameron
 created: 2026-07-22
 specified: 2026-07-22
+abandoned: 2026-07-23
 supersedes: []
 depends_on: ["0001", "0004"]
 amends: "specs/001-loan-actor-foundation/* (data-model.md Idempotency section; FT-015/FT-017-pinned behavior in LoanActor.Idempotency)"
@@ -194,3 +195,38 @@ Authored from the operator's load-test follow-up (2026-07-22), continuing direct
 `FT-035`'s own honestly-reported gap and root-cause diagnosis (commit `1a3998d`). Root cause
 is already diagnosed by that commit; this intent exists to run the diagnosed problem through
 the spec pipeline before any code changes, per PD-1 — not to re-diagnose it.
+
+## Closing note (Abandoned, 2026-07-23)
+
+`FT-046`/`FT-047` (Q1: collapse the three-transaction shape into one) were implemented, tested
+clean, and then proven by `FT-048`'s own load-test re-run to be a regression, not an
+improvement — reverted (`clarifications.md` Q17 Addendum 2). That much was already known when
+intent 0001's post-implementation audit began.
+
+What changed the outcome for this intent specifically: auditing intent 0001's closeout required
+citing a real green CI run, which surfaced that this whole intent is built on a measurement
+(496.64ms p95) taken on one specific machine — the local Windows development machine used
+throughout this project. Re-running the identical, UNMODIFIED (pre-0005) code on GitHub's Linux
+CI runner measured 7.3ms p95. To rule out CI simply being a faster or luckier machine, it was
+run a third time in a Linux container on the *same physical hardware* as the original 496.64ms
+measurement, using the exact Elixir/OTP version this project is pinned to (`.tool-versions`):
+10.23ms p95. Same code, same silicon, only the operating system differs, and the result is
+still comfortably inside `NFR-001`'s 100ms budget. Full detail: `clarifications.md` Q17
+Addendum 3.
+
+**Why Abandoned and not Implemented or re-Specified**: this intent's Outcome was "a loan actor
+sustains NFR-001 for real... verified by re-running FT-035's own load test at its default
+scale" — and that test does now pass, on two independent Linux environments, one of them
+hardware-identical to the machine that reported the original failure. But it passes with the
+**unmodified, pre-0005 code** — none of this intent's proposed architectural work (Q1's
+transaction collapse, or the untried Q2/Q3/Q4) turned out to be necessary or wanted. Marking
+this `Implemented` would misattribute the fix to work that was reverted; leaving it `Specified`
+indefinitely would misrepresent genuinely-concluded work as still pending. `Abandoned` is the
+accurate lifecycle state: a real problem was reported, investigated thoroughly, and the
+conclusion is that no code change is needed — the Windows-local-development-machine measurement
+that started this whole intent does not generalize to where the system would actually run.
+
+**What would reopen this**: a load test failing `NFR-001` on a genuinely representative
+production-like Linux host (not a laptop's local dev environment, not a small shared CI
+runner) at the full `SC-001` scale. Absent that, the architectural work this intent proposed
+(Q1/Q3/Q4) should not be picked up speculatively.
