@@ -87,6 +87,22 @@ defmodule LoanActor.Server do
   is its own isolated `gen_state`). See `pin_gate/2`'s own doc for the
   cross-restart durability gap this task does not yet close.
 
+  ## Gate outcome application (intent 0003, ADH-007; FR-003)
+
+  A heartbeat's matched skill naming a gate (`skill.gate != nil`) invokes
+  `evaluate_gate` for that pinned gate, then always appends a
+  `:gate_evaluated` diary entry. A `:pass`/`:fail` outcome additionally
+  appends a `:decision` entry (`LoanActor.Decision.payload/2`'s documented
+  shape) and applies the outcome's effect: `:pass` invokes the existing
+  `satisfy_goal` tool for every currently open goal (the concrete
+  pass→effect binding neither `spec.md`'s FR-003 nor
+  `contracts/gate-pack-format.md` specifies — resolved by explicit
+  decision during implementation, since a generic gate outcome carries no
+  structured "which goal"/"which transition" field to derive one from);
+  `:fail` applies no effect. `:indeterminate` logs `:gate_evaluated` only
+  — ADH-012 wires escalation routing for that outcome; until then it is a
+  documented, temporary no-op beyond the evaluation log itself.
+
   ## Subscribe (FT-025)
 
   `subscribe/2` starts a supervised `LoanActor.AGUI.Subscriber`
@@ -157,6 +173,8 @@ defmodule LoanActor.Server do
   alias LoanActor.AGUI.Encoder
   alias LoanActor.AGUI.Stream, as: AGUIStream
   alias LoanActor.AGUI.Subscriber
+  alias LoanActor.Assessment
+  alias LoanActor.Decision
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
@@ -543,10 +561,10 @@ defmodule LoanActor.Server do
     Enum.reduce(matched, gen_state, fn skill, acc ->
       acc = log_skill_activated(acc, skill)
 
-      if Enum.any?(@periodic_skill_tools, &(&1 in skill.tools_required)) do
-        run_skill_set_goal(acc, skill)
-      else
-        acc
+      cond do
+        skill.gate != nil -> run_skill_gate(acc, skill.gate.gate_id)
+        Enum.any?(@periodic_skill_tools, &(&1 in skill.tools_required)) -> run_skill_set_goal(acc, skill)
+        true -> acc
       end
     end)
   end
@@ -578,6 +596,94 @@ defmodule LoanActor.Server do
     payload = %{"goal_id" => goal.goal_id, "description" => goal.description}
     {:ok, _seq} = append_entry(gen_state, :goal_set, "system", payload)
 
+    %{gen_state | state: new_state}
+  end
+
+  # ---- gate evaluation + decision application (intent 0003, ADH-007) ----
+  #
+  # A matched gate-pack skill (skill.gate != nil) invokes evaluate_gate for
+  # its gate_id (pinned per FR-011 via invoke_tool/4's own maybe_pin_gate
+  # wiring, ADH-006), unconditionally logs :gate_evaluated, then branches:
+  # :pass/:fail builds a %Decision{} payload and applies the FR-003 effect;
+  # :indeterminate logs no further entry — ADH-012 wires escalation
+  # routing for that outcome, not yet built.
+  #
+  # Effect-application convention (a genuine spec gap resolved by explicit
+  # user decision during implementation, since neither spec.md's FR-003
+  # nor gate-pack-format.md says which of transition_state/satisfy_goal a
+  # given gate's pass maps to, or where required args like a specific
+  # goal_id would come from): a :pass outcome satisfies every currently
+  # open goal via the EXISTING satisfy_goal tool (mirrors this module's
+  # own established pattern of a documented, pragmatic convention where no
+  # structured field exists yet — see infer_doc_type/1's own admission of
+  # the same kind of gap). :fail applies no effect. transition_state's own
+  # effect-application plumbing is deferred — nothing (gate-driven or
+  # otherwise) currently produces a %{transition: event_type} effect to
+  # apply, so building it now would be untested, unexercised code; a
+  # future task adds it once a concrete transition-driving gate exists.
+  defp run_skill_gate(gen_state, gate_id) do
+    {gen_state, result} = invoke_tool(gen_state, "evaluate_gate", %{"gate_id" => gate_id}, :periodic)
+
+    case result do
+      {:ok, %{gate_outcome: gate_outcome}} -> apply_gate_outcome(gen_state, gate_outcome)
+      _other -> gen_state
+    end
+  end
+
+  defp apply_gate_outcome(gen_state, gate_outcome) do
+    gen_state = log_gate_evaluated(gen_state, gate_outcome)
+
+    case gate_outcome.outcome do
+      outcome when outcome in [:pass, :fail] -> apply_decision(gen_state, gate_outcome)
+      :indeterminate -> gen_state
+    end
+  end
+
+  defp log_gate_evaluated(gen_state, gate_outcome) do
+    payload = %{
+      "gate_id" => gate_outcome.gate_id,
+      "gate_version" => gate_outcome.gate_version,
+      "outcome" => gate_outcome.outcome,
+      "cause_hash" => hash_term_json(gate_outcome.cause)
+    }
+
+    {:ok, _seq} = append_entry(gen_state, :gate_evaluated, "system", payload)
+    gen_state
+  end
+
+  defp apply_decision(gen_state, gate_outcome) do
+    # The SAME pure derivation evaluate_gate itself used (Assessment.derive_from_state/1
+    # is a pure function of state — ADH-002/004's own established pattern —
+    # so re-deriving here, with gen_state.state unchanged since the tool
+    # call, yields byte-identical input to what was actually evaluated).
+    assessment = Assessment.derive_from_state(gen_state.state)
+    payload = Decision.payload(gate_outcome, assessment)
+    {:ok, _seq} = append_entry(gen_state, :decision, "system", payload)
+
+    case gate_outcome.outcome do
+      :pass -> satisfy_open_goals(gen_state)
+      :fail -> gen_state
+    end
+  end
+
+  defp satisfy_open_goals(gen_state) do
+    gen_state.state.goals
+    |> Enum.filter(&(&1.status == :open))
+    |> Enum.reduce(gen_state, fn goal, acc -> satisfy_one_goal(acc, goal.goal_id) end)
+  end
+
+  defp satisfy_one_goal(gen_state, goal_id) do
+    {gen_state, result} = invoke_tool(gen_state, "satisfy_goal", %{"goal_id" => goal_id}, :periodic)
+
+    case result do
+      {:ok, %{satisfy_goal: satisfied_goal_id}} -> apply_satisfy_goal(gen_state, satisfied_goal_id)
+      _other -> gen_state
+    end
+  end
+
+  defp apply_satisfy_goal(gen_state, goal_id) do
+    new_state = State.satisfy_goal(gen_state.state, goal_id)
+    {:ok, _seq} = append_entry(gen_state, :goal_satisfied, "system", %{"goal_id" => goal_id})
     %{gen_state | state: new_state}
   end
 
