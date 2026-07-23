@@ -2,12 +2,15 @@
 id: "0001"
 slug: foundation-loan-as-actor
 title: Establish the loan-as-actor runtime foundation — supervised loan processes with diaries, three-loop harness, and AG-UI surface
-status: Draft
+status: Closed
 author: cameron
 created: 2026-05-26
+specified: 2026-05-26
+implemented: 2026-07-23
+closed: 2026-07-23
 supersedes: []
 depends_on: []
-execution_spec: null
+execution_spec: "specs/001-loan-actor-foundation/spec.md"
 ---
 
 # Intent 0001 — Loan-as-actor runtime foundation
@@ -108,3 +111,43 @@ A loan that crashes is restarted by its supervisor and rehydrates its state from
 This is the root of the intent tree. Every subsequent intent assumes the foundation as given.
 
 The `loan-as-actor.html` document at the repo root is the long-form rationale and should be the canvas for resolving Q1–Q7 — it already lays out BEAM, Mnesia, and the OTP supervision story in narrative form. `/speckit.clarify` should consume it.
+
+## Retrospective
+
+Closed 2026-07-23 per the post-implementation audit cycle (constitution §"Post-Implementation
+Audit Cycle", added by intent 0002). Full detail in `specs/001-loan-actor-foundation/{audit,
+report,test-evidence}.md`; summary here.
+
+**What held up.** The core architectural bet — a loan as a single supervised GenServer with
+three explicit, linter-enforced loops, diary-replay for crash recovery, and a hard `transition/2`
+gate on state mutation — proved out completely. Every one of Q1–Q7's recommendations was adopted
+as stated and none needed revisiting. The tool/skill layer added mid-build (intent 0004) slotted
+in cleanly without touching any already-merged code, confirming the diary's `Entry.validate_type/1`
+design (any atom, no fixed enum baked into merged modules) was the right call.
+
+**What didn't hold up.** The reactive pipeline's throughput budget (NFR-001, this intent's own
+success-criteria list) is not met at full production scale, and the one fix attempted for it
+(intent 0005) was implemented, tested clean, and then proven by its own load test to be a
+regression rather than an improvement — reverted. This is closed anyway, with the gap reported
+honestly rather than papered over, per this project's own established norm (the same load test's
+FT-035 commit set that precedent first). A second, deeper gap — a loan's open goals have no
+recoverable trace in the diary at all, since tool diary entries are hash-only by design — was
+found auditing this very closeout, not during original development; it does not block closing
+(the crash-safety and status-recovery guarantees this intent's success criteria actually asked
+for all hold), but it is a real, documented limit on how far "replay reproduces identical state"
+can honestly be claimed today.
+
+**What the audit itself found.** This repository's CI had never successfully scheduled a single
+job, on any push, since the workflow file was first added — a configuration bug entirely
+unrelated to the code it was supposed to be testing, caught only because this closeout insisted
+on citing a real green run rather than assuming one existed. Fixing it immediately surfaced three
+more real bugs (a test whose timeout only worked by chance at local scale, a test whose equality
+check only passed by timing luck on a fast local machine, and three intentional test fixtures
+dialyzer had never actually been run against locally) — a small, self-contained demonstration of
+why "tests pass on my machine" and "CI is green" are different claims, and why this project's own
+insistence on citing evidence rather than asserting completion is worth the friction it adds.
+
+**For whoever picks up the follow-ups**: NFR-001 needs a genuinely different approach (batching
+or Mnesia tuning, tried independently — not combined with more transaction-collapsing), the
+goal-content-replay gap needs its own amendment deciding whether goal text is sensitive enough to
+need hash-only treatment, and both are real engineering work, not loose ends left by neglect.

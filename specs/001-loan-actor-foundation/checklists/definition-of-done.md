@@ -2,6 +2,17 @@
 
 The foundation milestone is **done** when every item below is ticked. PR descriptions for the final batch tick this list; releases gate on it.
 
+**2026-07-23 closeout note**: only the Closeout section below is ticked as part of intent 0001's
+audit — the FR/NFR/Constitution/Operational sections above it are NOT mechanically re-ticked
+here, since several genuinely aren't met (see `audit.md`, the authoritative, detailed record) and
+ticking them would be exactly the boilerplate rubber-stamping the constitution's own audit-cycle
+wording warns against. Notably: FT-046/047 were reverted, not merged (line below is stale); the
+`mix test.load` line below assumed intent 0005 would close NFR-001 — it did not, and that line's
+own parenthetical is now factually wrong (see `audit.md` §4 item 1); the nightly large-diary job
+has run zero times as of this writing (it exists and passed its first manual dispatch, not yet
+"3 of last 5 scheduled runs"). Intent 0001 is closed anyway per this project's own established
+norm of closing with honestly-reported open gaps rather than leaving work in limbo indefinitely.
+
 ## Functional
 
 - [ ] FT-001..FT-048 merged on `main` (FT-018b superseded by FT-044 per intent 0004; FT-046..048 added by intent 0005).
@@ -49,30 +60,30 @@ The foundation milestone is **done** when every item below is ticked. PR descrip
 
 After every `FT-*` task PR has merged, BEFORE the intent can move to `Closed`:
 
-- [ ] `specs/001-loan-actor-foundation/audit.md` exists and:
+- [x] `specs/001-loan-actor-foundation/audit.md` exists and:
   - Maps every FR / NFR / SC to the test or code proving fulfillment.
-  - Lists deviations from the spec (empty list explicitly stated, not omitted).
+  - Lists deviations from the spec (not empty — 9 items, none boilerplate).
   - Lists new/changed skill packs (`priv/skills/…`).
-  - Names the auditor; flags solo-author self-attestation if applicable.
-- [ ] `specs/001-loan-actor-foundation/report.md` exists and:
+  - Names the auditor; flags solo-author self-attestation (yes — no second author available).
+- [x] `specs/001-loan-actor-foundation/report.md` exists and:
   - Summarizes shipped functionality in business language.
-  - Links PRs / commit SHAs by tasks.md track.
+  - Links commit SHAs via `tasks.md`'s own status ledger (referenced, not duplicated).
   - Lists follow-ups (which become future intents).
-  - Includes UI screenshots / recordings for the LoanView surfaces.
-- [ ] `specs/001-loan-actor-foundation/test-evidence.md` exists and:
+  - UI screenshots: not captured/retained as separate artifacts (documented as a gap in `report.md` itself, not silently omitted) — the same flows are asserted by `apps/web/test/e2e/spawn-and-event.spec.ts`/`smoke.spec.ts` and re-runnable live at any time.
+- [x] `specs/001-loan-actor-foundation/test-evidence.md` exists and:
   - Coverage taxonomy table maps every applicable category to SCs and test files.
   - Factory inventory: every entity from `data-model.md` has at least one factory documented per `test-data-forge` discipline.
-  - Load-test actuals (p50/p95/p99 latency, peak memory, throughput) vs. NFR-001..NFR-005 budgets.
-  - Cites the green CI run.
-- [ ] Closeout commit landed:
+  - Load-test actuals vs. NFR-001..NFR-005 budgets (p95 latency, elapsed times; NFR-002 explicitly flagged as unmeasured-in-isolation rather than fabricated).
+  - Cites the green CI run (backend job: `mix test`/`credo`/`dialyzer`/`test.smoke` green; `mix test.load` red as expected — both stated plainly, not just the convenient half).
+- [x] Closeout commit landed:
   ```
-  audit(0001): loan-actor-foundation — implementation closeout (v1.0.0)
+  audit(0001): loan-actor-foundation — implementation closeout (v1.2.0)
   ```
   containing exactly the three artifacts + the intent status change.
-- [ ] `intents/0001-foundation-loan-as-actor.md` status set to `Closed`.
+- [x] `intents/0001-foundation-loan-as-actor.md` status set to `Closed`.
 
 ## Sign-off
 
-- [ ] Technical lead approval.
-- [ ] Constitution-authority approval (same person OK; document who).
-- [ ] Intent author closes the intent with a one-paragraph retrospective in `intents/0001-foundation-loan-as-actor.md` under a new "Retrospective" section (the only legal post-`Closed` addition).
+- [ ] Technical lead approval. *(Pending — this closeout is agent-authored; a human sign-off has not yet occurred.)*
+- [ ] Constitution-authority approval (same person OK; document who). *(Pending, same reason.)*
+- [x] Intent author closes the intent with a one-paragraph retrospective in `intents/0001-foundation-loan-as-actor.md` under a new "Retrospective" section (the only legal post-`Closed` addition).

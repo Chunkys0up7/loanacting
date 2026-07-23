@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-26
 
-**Status**: Draft
+**Status**: Implemented (intent 0001 Closed 2026-07-23 — see `audit.md`/`report.md`/`test-evidence.md`)
 
 **Input**: Intent [`intents/0001-foundation-loan-as-actor.md`](../../intents/0001-foundation-loan-as-actor.md)
 
