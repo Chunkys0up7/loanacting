@@ -199,7 +199,19 @@ defmodule LoanActor.ServerReactiveTest do
 
       assert is_pid(new_pid)
       assert {:ok, rehydrated_state} = LoanActor.state(loan_id)
-      assert rehydrated_state == pre_crash_state
+
+      # last_heartbeat_at is excluded: its live value comes from a
+      # DateTime.utc_now() call at heartbeat time, never stored verbatim
+      # in the diary (only a hash of the state it was set on) — a real
+      # heartbeat tick between the pre-crash snapshot above and the crash
+      # a few lines later lands on a genuinely different timestamp on
+      # each side. Same reasoning (and same fix shape) as
+      # server_property_test.exs/nfr_load_test.exs/smoke_test.exs; this
+      # test predates all three and never got it, which is exactly why a
+      # real CI run (config/test.exs's heartbeat_ms: 100 makes this race
+      # far more likely on a loaded/shared runner than on a quiet local
+      # machine) caught it here first.
+      assert %{rehydrated_state | last_heartbeat_at: nil} == %{pre_crash_state | last_heartbeat_at: nil}
     end
   end
 end
