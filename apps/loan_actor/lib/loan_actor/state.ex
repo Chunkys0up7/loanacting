@@ -141,6 +141,32 @@ defmodule LoanActor.State do
     %{state | last_heartbeat_at: timestamp}
   end
 
+  @doc """
+  Set a single `state.context` fact key (intent 0003, ADH-008; `research.md`
+  R-3's incremental-facts mechanism — the same shape as `add_goal/2`,
+  extended to `context` instead of `goals`). Last-write-wins per key;
+  callers decide when a fact changes (e.g. the reactive pipeline, on a
+  `:document_uploaded` event, sets `"document_completeness" => :complete`).
+  """
+  @spec set_context_fact(t(), String.t(), term()) :: t()
+  def set_context_fact(%__MODULE__{} = state, key, value) when is_binary(key) do
+    %{state | context: Map.put(state.context, key, value)}
+  end
+
+  @doc """
+  Record `goal_id`'s creation `timestamp` under `state.context["goal_created_at"]`
+  (intent 0003, ADH-008) — the incremental fact `LoanActor.Assessment.goal_ages/1`
+  reads. Called alongside `add_goal/2` at the same call site (the `set_goal`
+  tool's effect application), never independently — a goal without a
+  recorded creation time is a bug in that call site, not a state this
+  function needs to guard against.
+  """
+  @spec record_goal_created_at(t(), String.t(), DateTime.t()) :: t()
+  def record_goal_created_at(%__MODULE__{} = state, goal_id, %DateTime{} = timestamp) when is_binary(goal_id) do
+    created_ats = Map.get(state.context, "goal_created_at", %{})
+    %{state | context: Map.put(state.context, "goal_created_at", Map.put(created_ats, goal_id, timestamp))}
+  end
+
   defp validate_loan_id(v) when is_binary(v) and byte_size(v) > 0, do: v
 
   defp validate_loan_id(v),

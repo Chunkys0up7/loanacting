@@ -103,6 +103,28 @@ defmodule LoanActor.Server do
   — ADH-012 wires escalation routing for that outcome; until then it is a
   documented, temporary no-op beyond the evaluation log itself.
 
+  ## Incremental diary-derived facts (intent 0003, ADH-008; research.md R-3)
+
+  `state.context` gains two incrementally-maintained fact keys, both via
+  new `LoanActor.State` sibling functions to `add_goal/2` (not a new
+  mutation surface): `apply_event/3` folds `"document_completeness" =>
+  :complete` into `context` in the SAME step as `State.transition/2`
+  whenever the reactive event is `:document_uploaded`; the periodic
+  loop's `apply_add_goal/2` (already the `set_goal` tool's effect
+  application) additionally stamps `context["goal_created_at"][goal_id]`
+  with the wall-clock time of creation — the value
+  `LoanActor.Assessment.goal_ages/1` already reads. `rehydrate/2` replays
+  `apply_context_facts/2` alongside `State.transition/2` for every legal
+  entry, so `document_completeness` IS reconstructed correctly across a
+  crash (proven by extending the existing full-pipeline crash-recovery
+  test). `goal_created_at` is NOT — it inherits `rehydrate/2`'s own,
+  separately-tracked, pre-existing gap (goals aren't reconstructed from a
+  real diary at all yet), unchanged by this task. See
+  `test/state_context_facts_test.exs` for the R-3 replay invariant this
+  proves (prefix-consistency of the incremental fold vs. a from-scratch
+  recomputation) — scoped to the fold mechanism itself, not a live
+  crash/restart round-trip.
+
   ## Subscribe (FT-025)
 
   `subscribe/2` starts a supervised `LoanActor.AGUI.Subscriber`
@@ -332,7 +354,7 @@ defmodule LoanActor.Server do
     %{loan_id: loan_id, state: state} = gen_state
 
     try do
-      new_state = State.transition(state, event.type)
+      new_state = state |> State.transition(event.type) |> apply_context_facts(event.type)
       {:ok, sequence} = append_entry(gen_state, event.type, Atom.to_string(event.source), clean_payload)
       :ok = Idempotency.record_sequence(loan_id, event.event_id, event.source, sequence)
       broadcast_state_delta(gen_state, new_state)
@@ -350,6 +372,15 @@ defmodule LoanActor.Server do
         {:reply, {:error, {:illegal_transition, e.from, e.event_type}}, gen_state}
     end
   end
+
+  # Incremental diary-derived facts (intent 0003, ADH-008; research.md R-3)
+  # — the reactive pipeline's own sibling to State.transition/2, folded in
+  # the SAME step so a fact update is never a separate, un-paired mutation.
+  # :document_uploaded is the one currently-defined signal (Assessment's
+  # OTHER two facts, goal_ages/sla_state, are already pure derivations
+  # from state.goals/last_heartbeat_at needing no context key at all).
+  defp apply_context_facts(state, :document_uploaded), do: State.set_context_fact(state, "document_completeness", :complete)
+  defp apply_context_facts(state, _other_event_type), do: state
 
   # ---- HITL response handling (FT-028) ----
 
@@ -497,7 +528,7 @@ defmodule LoanActor.Server do
       |> then(&store.stream(&1, []))
       |> Enum.reduce(State.new(%{loan_id: loan_id}), fn entry, acc ->
         cond do
-          Model.legal?(acc.status, entry.type) -> State.transition(acc, entry.type)
+          Model.legal?(acc.status, entry.type) -> acc |> State.transition(entry.type) |> apply_context_facts(entry.type)
           entry.type == :heartbeat -> State.record_heartbeat(acc, entry.timestamp)
           true -> acc
         end
@@ -591,7 +622,10 @@ defmodule LoanActor.Server do
   end
 
   defp apply_add_goal(gen_state, goal) do
-    new_state = State.add_goal(gen_state.state, goal)
+    new_state =
+      gen_state.state
+      |> State.add_goal(goal)
+      |> State.record_goal_created_at(goal.goal_id, DateTime.utc_now())
 
     payload = %{"goal_id" => goal.goal_id, "description" => goal.description}
     {:ok, _seq} = append_entry(gen_state, :goal_set, "system", payload)

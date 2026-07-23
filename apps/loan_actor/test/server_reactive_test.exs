@@ -130,6 +130,19 @@ defmodule LoanActor.ServerReactiveTest do
     end
   end
 
+  describe "send_event — happy (ADH-008: :document_uploaded sets a context fact live)" do
+    test "a real :document_uploaded event sets document_completeness on the live loan" do
+      loan_id = Factory.unique_loan_id()
+      {:ok, _pid} = ServerTestSupport.spawn_and_track(loan_id)
+
+      {:ok, _seq1} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_set}))
+      {:ok, _seq2} = LoanActor.send_event(loan_id, Factory.event(%{type: :document_uploaded}))
+
+      assert {:ok, state} = LoanActor.state(loan_id)
+      assert state.context["document_completeness"] == :complete
+    end
+  end
+
   describe "send_event — error (idempotency step, in isolation)" do
     test "re-delivering the SAME event_id reports {:duplicate, original_sequence}, no second diary entry" do
       loan_id = Factory.unique_loan_id()

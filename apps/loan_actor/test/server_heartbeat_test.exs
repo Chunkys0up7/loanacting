@@ -200,6 +200,11 @@ defmodule LoanActor.ServerHeartbeatTest do
 
       assert entries_of_type(loan_id, :skill_activated) != []
       assert entries_of_type(loan_id, :goal_set) != []
+
+      # ADH-008: the tool-effect call site that adds the goal also stamps
+      # its creation time under context["goal_created_at"].
+      [goal] = state.goals
+      assert %DateTime{} = state.context["goal_created_at"][goal.goal_id]
     end
   end
 
