@@ -153,20 +153,13 @@ defmodule LoanActor.ServerHeartbeatTest do
 
   describe "heartbeat — happy (skill-triggered set_goal, custom fixture pack)" do
     test "a matched skill naming set_goal causes a new goal with the skill's description" do
-      tmp_dir = Factory.unique_tmp_dir("loan_actor_heartbeat_skill")
-      pack_dir = Path.join(tmp_dir, "0001-set-goal-demo")
-      File.mkdir_p!(pack_dir)
-
-      File.write!(Path.join(pack_dir, "SKILL.md"), """
-      ---
-      name: set-goal-demo
-      version: 1.0.0
-      description: processing loan needs a periodic reminder goal set automatically.
-      tools_required: [set_goal]
-      ---
-
-      Body.
-      """)
+      tmp_dir =
+        Factory.write_skill_pack!(Factory.unique_tmp_dir("loan_actor_heartbeat_skill"), %{
+          id: "0001-set-goal-demo",
+          name: "set-goal-demo",
+          description: "processing loan needs a periodic reminder goal set automatically.",
+          tools_required: ["set_goal"]
+        })
 
       Application.put_env(:loan_actor, :skills_dir, tmp_dir)
 

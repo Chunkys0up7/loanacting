@@ -170,22 +170,12 @@ defmodule LoanActor.Web.RouterTest do
 
   describe "POST /loans/:loan_id/hitl/:request_id" do
     defp hitl_skill_dir do
-      dir = Factory.unique_tmp_dir("loan_actor_router_hitl_skill")
-      pack_dir = Path.join(dir, "0001-demo-hitl")
-      File.mkdir_p!(pack_dir)
-
-      File.write!(Path.join(pack_dir, "SKILL.md"), """
-      ---
-      name: demo-hitl
-      version: 1.0.0
-      description: During plan review, ask the operator to approve or reject this loan.
-      tools_required: [request_operator_approval]
-      ---
-
-      Body.
-      """)
-
-      dir
+      Factory.write_skill_pack!(Factory.unique_tmp_dir("loan_actor_router_hitl_skill"), %{
+        id: "0001-demo-hitl",
+        name: "demo-hitl",
+        description: "During plan review, ask the operator to approve or reject this loan.",
+        tools_required: ["request_operator_approval"]
+      })
     end
 
     setup do

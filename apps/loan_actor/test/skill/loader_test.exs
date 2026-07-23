@@ -99,19 +99,12 @@ defmodule LoanActor.Skill.LoaderTest do
 
       assert {:ok, []} = Loader.load_all(dir: tmp_dir)
 
-      pack_dir = Path.join(tmp_dir, "0001-added-later")
-      File.mkdir_p!(pack_dir)
-
-      File.write!(Path.join(pack_dir, "SKILL.md"), """
-      ---
-      name: added-later
-      version: 1.0.0
-      description: Added after the first load_all call.
-      tools_required: []
-      ---
-
-      Body.
-      """)
+      Factory.write_skill_pack!(tmp_dir, %{
+        id: "0001-added-later",
+        name: "added-later",
+        description: "Added after the first load_all call.",
+        tools_required: []
+      })
 
       assert {:ok, [%Skill{name: "added-later"}]} = Loader.reload()
     end

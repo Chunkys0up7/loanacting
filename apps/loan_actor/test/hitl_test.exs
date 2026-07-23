@@ -10,8 +10,8 @@ defmodule LoanActor.HITLTest do
   Principle VIII), so the request_id cannot be recovered from the diary
   alone. The `request_operator_approval` tool only ever fires from the
   planning loop (no public invoke API, Principle I), so a temporary skill
-  pack (test-data-forge, mirrors `test/skill/loader_test.exs`'s inline
-  fixture-writing pattern) is what actually summons it here.
+  pack (`Factory.write_skill_pack!/2`, FT-037) is what actually summons it
+  here.
   """
 
   use ExUnit.Case, async: false
@@ -45,22 +45,12 @@ defmodule LoanActor.HITLTest do
   defp restore(key, value), do: Application.put_env(:loan_actor, key, value)
 
   defp hitl_skill_dir do
-    dir = Factory.unique_tmp_dir("loan_actor_hitl_skill")
-    pack_dir = Path.join(dir, "0001-demo-hitl")
-    File.mkdir_p!(pack_dir)
-
-    File.write!(Path.join(pack_dir, "SKILL.md"), """
-    ---
-    name: demo-hitl
-    version: 1.0.0
-    description: During plan review, ask the operator to approve or reject this loan.
-    tools_required: [request_operator_approval]
-    ---
-
-    Body.
-    """)
-
-    dir
+    Factory.write_skill_pack!(Factory.unique_tmp_dir("loan_actor_hitl_skill"), %{
+      id: "0001-demo-hitl",
+      name: "demo-hitl",
+      description: "During plan review, ask the operator to approve or reject this loan.",
+      tools_required: ["request_operator_approval"]
+    })
   end
 
   defp spawn_loan_with_hitl_skill do

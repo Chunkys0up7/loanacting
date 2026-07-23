@@ -34,6 +34,7 @@ defmodule LoanActor.Factory do
   alias LoanActor.Goal
   alias LoanActor.HITLRequest
   alias LoanActor.HITLResponse
+  alias LoanActor.Skill
   alias LoanActor.State
   alias LoanActor.State.Model
   alias LoanActor.Tool.Context, as: ToolContext
@@ -528,6 +529,111 @@ defmodule LoanActor.Factory do
       {:nested_violation, %{"type" => "object", "properties" => %{"x" => %{"minLength" => 3}}}},
       {:not_a_map, "string schema"}
     ]
+  end
+
+  @doc """
+  Valid attribute map for building a `%LoanActor.Skill{}` directly (no
+  `LoanActor.Skill.Loader` parsing round-trip). Defaults name a tool
+  (`verify_diary_chain`) that is always present in the real
+  `Tool.Registry`, so `write_skill_pack!/2`'s on-disk form of these same
+  attrs is loader-valid out of the box.
+  """
+  @spec skill_attrs(map() | keyword()) :: map()
+  def skill_attrs(overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    id = Map.get(overrides, :id, "0099-factory-skill")
+
+    Map.merge(
+      %{
+        id: id,
+        name: "factory-skill",
+        version: "1.0.0",
+        description: "A factory-built skill pack for testing.",
+        tools_required: ["verify_diary_chain"],
+        body: "Body.",
+        files: [],
+        path: Path.join("priv/skills", id)
+      },
+      overrides
+    )
+  end
+
+  @doc "Build a `%LoanActor.Skill{}` directly from `skill_attrs/1` — never loader-validated (see `write_skill_pack!/2` for that)."
+  @spec skill(map() | keyword()) :: Skill.t()
+  def skill(overrides \\ %{}), do: struct!(Skill, skill_attrs(overrides))
+
+  @doc """
+  Write a real `SKILL.md` pack under `dir` (creating the pack's own
+  subdirectory as needed), in the restricted front-matter grammar
+  `LoanActor.Skill.Loader` parses — for tests that need `Loader.load_pack/1`
+  or `load_all/1` to see a genuine on-disk pack rather than a `%Skill{}`
+  built in memory. `overrides` feeds `skill_attrs/1` (`:id` names the pack
+  subdirectory; `:name`/`:version`/`:description`/`:tools_required`/`:body`
+  become the front-matter + body). Returns `dir` itself (not the pack
+  subdirectory), ready to hand straight to `Application.put_env(:loan_actor,
+  :skills_dir, dir)` or `Loader.load_all(dir: dir)`.
+  """
+  @spec write_skill_pack!(Path.t(), map() | keyword()) :: Path.t()
+  def write_skill_pack!(dir, overrides \\ %{}) do
+    attrs = skill_attrs(overrides)
+    pack_dir = Path.join(dir, attrs.id)
+    File.mkdir_p!(pack_dir)
+
+    File.write!(Path.join(pack_dir, "SKILL.md"), """
+    ---
+    name: #{attrs.name}
+    version: #{attrs.version}
+    description: #{attrs.description}
+    tools_required: [#{Enum.join(attrs.tools_required, ", ")}]
+    ---
+
+    #{attrs.body}
+    """)
+
+    dir
+  end
+
+  @doc """
+  A realistic linked `{tool_invoked_entry, tool_completed_or_failed_entry}`
+  pair, continuing from `tail` (or the genesis entry when `tail` is
+  `nil`) — mirrors exactly what `LoanActor.Server`'s `invoke_tool/4` +
+  `append_tool_result_entry/3` write to the diary per real tool
+  invocation (`payload_hash` computed from the same `{"tool",
+  "invocation_id", ...}` payload shape, JSON-encoded then hashed).
+  `overrides` may set `:tool_name` (default `"verify_diary_chain"`),
+  `:outcome` (`:completed` | `:failed`, default `:completed`), and
+  `:loan_id` (only meaningful when `tail` is `nil`).
+  """
+  @spec tool_invocation_diary_pair(Entry.t() | nil, map() | keyword()) :: {Entry.t(), Entry.t()}
+  def tool_invocation_diary_pair(tail, overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    tool_name = Map.get(overrides, :tool_name, "verify_diary_chain")
+    outcome = Map.get(overrides, :outcome, :completed)
+    invocation_id = "inv-#{System.unique_integer([:positive, :monotonic])}"
+
+    invoked_payload = %{"tool" => tool_name, "invocation_id" => invocation_id, "args_hash" => "AA=="}
+
+    invoked =
+      next_entry(
+        tail,
+        overrides
+        |> Map.take([:loan_id])
+        |> Map.merge(%{type: :tool_invoked, payload_hash: Chain.hash(Jason.encode!(invoked_payload))})
+      )
+
+    {result_type, result_payload} =
+      case outcome do
+        :completed ->
+          {:tool_completed, %{"tool" => tool_name, "invocation_id" => invocation_id, "result_hash" => "BB=="}}
+
+        :failed ->
+          {:tool_failed, %{"tool" => tool_name, "invocation_id" => invocation_id, "reason" => "simulated_failure"}}
+      end
+
+    completed =
+      next_entry(invoked, %{type: result_type, payload_hash: Chain.hash(Jason.encode!(result_payload))})
+
+    {invoked, completed}
   end
 
   # ---- PII corpus generators (FT-014) ----
