@@ -125,12 +125,22 @@ as stated and none needed revisiting. The tool/skill layer added mid-build (inte
 in cleanly without touching any already-merged code, confirming the diary's `Entry.validate_type/1`
 design (any atom, no fixed enum baked into merged modules) was the right call.
 
-**What didn't hold up.** The reactive pipeline's throughput budget (NFR-001, this intent's own
-success-criteria list) is not met at full production scale, and the one fix attempted for it
-(intent 0005) was implemented, tested clean, and then proven by its own load test to be a
-regression rather than an improvement — reverted. This is closed anyway, with the gap reported
-honestly rather than papered over, per this project's own established norm (the same load test's
-FT-035 commit set that precedent first). A second, deeper gap — a loan's open goals have no
+**What didn't hold up — then turned out to hold up after all.** The reactive pipeline's
+throughput budget (NFR-001) failed at full scale on the local Windows development machine
+(496ms p95 vs. a 100ms budget), and the one fix attempted for it (intent 0005) was implemented,
+tested clean, and then proven by its own load test to be a regression rather than an improvement
+on that same machine — reverted. A same-day follow-up investigation then ran the identical test
+on GitHub's Linux CI runner (7.3ms p95) and, to rule out CI just getting lucky, a third time in a
+Linux container on the exact same physical hardware as the failing Windows run, using the exact
+pinned Elixir/OTP version (10.23ms p95) — both comfortably inside budget, both roughly 50-70x
+faster than the Windows-native number. Same code, same hardware in the third case, only the
+operating system changed: this is very likely a Windows-local-development-machine artifact
+(Windows Defender's real-time scanning was confirmed active with no exclusion for the repo,
+consistent with though not proof of the cause), not a real architectural limit — production
+deployment (Linux) almost certainly never had this problem. Full detail in `audit.md` §4 item 1.
+This does not retroactively make the intent-0005 revert wrong (that was a valid same-machine
+relative comparison), but it does mean the follow-up work that revert implied is very likely
+unnecessary. A second, deeper gap — a loan's open goals have no
 recoverable trace in the diary at all, since tool diary entries are hash-only by design — was
 found auditing this very closeout, not during original development; it does not block closing
 (the crash-safety and status-recovery guarantees this intent's success criteria actually asked
@@ -147,7 +157,9 @@ dialyzer had never actually been run against locally) — a small, self-containe
 why "tests pass on my machine" and "CI is green" are different claims, and why this project's own
 insistence on citing evidence rather than asserting completion is worth the friction it adds.
 
-**For whoever picks up the follow-ups**: NFR-001 needs a genuinely different approach (batching
-or Mnesia tuning, tried independently — not combined with more transaction-collapsing), the
-goal-content-replay gap needs its own amendment deciding whether goal text is sensitive enough to
-need hash-only treatment, and both are real engineering work, not loose ends left by neglect.
+**For whoever picks up the follow-ups**: intent 0005 should close as "investigated, root cause
+was local-environment noise, not the transaction design" rather than pursue batching or Mnesia
+tuning — that architectural work is very likely not needed, pending one more real-world
+confirmation if anyone wants full certainty. The goal-content-replay gap needs its own amendment
+deciding whether goal text is sensitive enough to need hash-only treatment — that one is real
+engineering work, not a loose end left by neglect.

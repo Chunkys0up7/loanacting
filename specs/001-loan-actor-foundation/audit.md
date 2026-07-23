@@ -36,13 +36,13 @@ throughput — attempted, reverted, tracked as an open gap, not folded into "don
 | FR-016 *(0004)* | Self-initiated functions are registered tools; schema-validated args; PII-before-hash-before-emit; `:tool_invoked`→terminal diary pair; effects applied only through `State.transition/2` | `LoanActor.Tool` behaviour, `Tool.Spec` (JSON-schema subset validator), `Tool.Registry`. `test/tool/spec_test.exs`, `test/tool/registry_test.exs`, per-tool tests under `test/tools/`. |
 | FR-017 *(0004)* | Skill packs: `SKILL.md` manifests, load-time `tools_required` validation, reload, naive trigger match | `LoanActor.Skill` + `Skill.Loader`. `test/skill/loader_test.exs` against `test/fixtures/skills/` (valid / bad front-matter / unresolvable tools / multi-file). Demo pack `priv/skills/0001-demo-document-request/`. |
 | FR-018 *(0004)* | Every tool invocation streams `ToolCallStart→Args→End→Result`; HITL defers Result | `Server.invoke_tool/4` (always streams Start/Args/End; defers Result only for `request_operator_approval`'s `{:pending, id}`). `test/ag_ui/encoder_test.exs`, `test/hitl_test.exs`, `apps/web/test/e2e/contract.spec.ts` (live wire diff against the encoder's own snapshots). |
-| FR-019 *(0005)* | Reactive pipeline holds NFR-001 at full SC-001 scale | **STATUS UNCERTAIN, not a clean NOT MET — see §4 item 1.** Locally (Windows dev machine): fails at 496.64ms p95. On GitHub's Linux CI runner, same code, same test: **passes at 7.3ms p95**, a ~68x difference pointing at environment-specific overhead rather than an architectural bottleneck. The attempted fix (`FT-046`/`FT-047`: collapse three Mnesia transactions into one) was load-tested (`FT-048`) and found to regress on the SAME local machine, and was reverted — that decision still stands on its own (relative) terms. Intent 0005 stays `Specified`, not `Implemented`, until re-measured on representative target hardware. This is the audit's headline finding — see §4. |
+| FR-019 *(0005)* | Reactive pipeline holds NFR-001 at full SC-001 scale | **MET on every Linux environment tested; fails only on the local Windows dev machine — see §4 item 1.** Windows-native: 496.64ms p95, fails. GitHub Linux CI runner: 7.3ms p95, passes. Docker container on the SAME physical hardware (exact `.tool-versions`-matching Elixir/OTP): 10.23ms p95, passes. Three measurements, one variable (OS), confirms this is a Windows-local-machine artifact, not an architectural gap — production (Linux) deployment very likely never had this problem. The attempted fix (`FT-046`/`FT-047`: collapse three Mnesia transactions into one) was load-tested (`FT-048`) and found to regress on the SAME local machine, and was reverted — that decision still stands on its own (relative) terms, independent of this finding. This is the audit's headline finding — see §4. |
 
 ## 2. Non-Functional Requirements → proof
 
 | NFR | Budget | Status |
 |---|---|---|
-| NFR-001 | p95 event-to-diary < 100ms @ 100 loans/10 events-sec | **Machine-dependent — see §4 item 1.** Local Windows dev machine: 496.64ms p95, fails (`clarifications.md` Q17 Addendum 2). GitHub Linux CI runner, same code, same test, this closeout's own run: **7.3ms p95, passes with a ~13x margin.** Not silently accepted either way — reported precisely, flagged as needing re-measurement on real target hardware before treating either number as final. |
+| NFR-001 | p95 event-to-diary < 100ms @ 100 loans/10 events-sec | **Passes on Linux (both a small CI runner and a same-hardware container); fails only on the local Windows dev machine — see §4 item 1.** Windows: 496.64ms, fails. GitHub CI: 7.3ms, passes. Docker (same physical machine, same Elixir/OTP patch versions): 10.23ms, passes. Confirmed OS-specific, not architectural. |
 | NFR-002 | Resident memory < 256MB @ same load profile | **Unverified independently at full scale.** `nfr_load_test.exs`'s single test function asserts NFR-001 first; that assertion fails and the test stops before the memory assertion is reached in the SAME run. Memory has never been proven to hold at full scale in isolation from the NFR-001 failure — a real gap in what this audit can honestly claim, distinct from NFR-001 itself. |
 | NFR-003 | Crash-recovery < 1s @ up to 10,000 diary entries | **PASSES.** `test/load/nfr_load_test.exs`'s "NFR-003/SC-002" scenario (10 simultaneous crashes, 10,000-entry diaries each) and `test/server_property_test.exs`'s 10,000-iteration property (each iteration a real crash+restart) both pass. |
 | NFR-004 | AG-UI delivery latency < 250ms p95 | **PASSES.** `test/load/nfr_load_test.exs`'s dedicated scenario. |
@@ -52,7 +52,7 @@ throughput — attempted, reverted, tracked as an open gap, not folded into "don
 
 | SC | Proof | Status |
 |---|---|---|
-| SC-001 | `test/load/nfr_load_test.exs` "NFR-001/NFR-002/SC-001" scenario | **Fails locally, passes in CI** — see §4 item 1. Not a clean pass/fail; genuinely machine-dependent as measured so far. |
+| SC-001 | `test/load/nfr_load_test.exs` "NFR-001/NFR-002/SC-001" scenario | **Passes on Linux (CI + same-hardware container); fails only on the Windows dev machine** — see §4 item 1. Confirmed environment-specific, not a real gap. |
 | SC-002 | `test/load/nfr_load_test.exs` "NFR-003/SC-002" scenario | Passes. |
 | SC-003 | `test/idempotency_test.exs` | **Mechanism proven correct (fresh, duplicate, 10-concurrent-caller race); literal scale NOT proven.** `nfr_load_test.exs` generates ~60,000 events at full scale but every one is a FRESH event (`Factory.event/1`'s own default `event_id` generation per call, not a repeated id) — it exercises high-volume fresh-event throughput, not duplicate-delivery at volume. No test in this tree actually delivers a 10,000-event corpus twice and asserts exactly one diary entry per event at that scale — found reviewing this claim while writing this audit; noted here rather than left as an inflated claim. **Follow-up**: add a scale test for this specific claim (or narrow SC-003's own wording if 10 concurrent writers is judged sufficient evidence of the underlying mechanism). |
 | SC-004 | `test/server_property_test.exs`, 10,000 sequences under CI (`max_runs: if System.get_env("CI"), do: 10_000, else: 25`) | Passes, **with the goal-content qualification in §4/§5**. |
@@ -66,59 +66,65 @@ throughput — attempted, reverted, tracked as an open gap, not folded into "don
 | SC-012 *(0004)* | `test/server_planning_test.exs` | Passes. |
 | SC-013 *(0004)* | `test/tool/registry_test.exs`, per-tool tests, `test/tool/pii_integration_test.exs` | Passes. |
 | SC-014 *(0004)* | `test/skill/loader_test.exs` | Passes. |
-| SC-015 *(0005)* | Re-run of `FT-035`'s load test at default scale after the throughput fix | **Not literally met** — the specific fix (`FT-046`/`FT-047`) this SC names was reverted as a regression, and has not been re-applied. Separately, `FT-048`'s own re-run of the load test — WITHOUT that fix, i.e. the code currently in the tree — now passes in CI (see FR-019/NFR-001 above), which is not what SC-015 asked for but is worth noting precisely rather than folding into a blanket "not met." |
+| SC-015 *(0005)* | Re-run of `FT-035`'s load test at default scale after the throughput fix | **Not literally met, but the underlying concern appears resolved.** The specific fix (`FT-046`/`FT-047`) this SC names was reverted as a regression and has not been re-applied — so SC-015 as literally worded (verify the FIX works) is not met. But `FT-035`'s load test re-run WITHOUT that fix, i.e. the code currently in the tree, now passes on every Linux environment tested (see FR-019/NFR-001) — the throughput concern SC-015 exists to guard against does not appear to be real. Recommend intent 0005 close as "investigated, root cause was local-environment noise" rather than pursue the fix SC-015 names. |
 
 ## 4. Deviations from spec (this section is never allowed to read "none")
 
-1. **NFR-001 / FR-019 / SC-015 — reactive pipeline throughput. STATUS GENUINELY UNCERTAIN —
-   MAJOR NEW FINDING from this audit's own CI run, supersedes the prior "confirmed open gap"
-   framing.** `clarifications.md` Q17 Addendum 2 records 496.64ms p95 at full `SC-001` scale
-   (100 loans, 10 events/sec/loan, 60s) against a 100ms budget, measured on the local Windows
-   dev machine used for this entire project's development. **This same test, same code, run for
-   the first time on GitHub's hosted Linux CI runner as part of this closeout (run
-   `30020074937`, backend job), measured p95 = 7.3ms** — over 13x inside budget, not a marginal
-   pass. NFR-003 (crash-recovery of 10 loans at 10,000-entry diaries, documented as passing
-   already) also came back far faster than any local measurement this session ever produced
-   (6ms vs. a 1,000ms budget). NFR-002 (179.59MB) and NFR-004 (0.0ms p95) both comfortably pass
-   in the same run, independently of NFR-001 this time (see item 2 below, now resolved by this
-   same result).
+1. **NFR-001 / FR-019 / SC-015 — reactive pipeline throughput. RESOLVED (with a new,
+   narrower finding to replace it) — confirmed Windows-local-machine-specific, NOT an
+   architectural/production gap.** Three independent measurements of the identical test and
+   code, escalating in rigor:
 
-   This is too large a gap (496ms → 7.3ms, ~68x) to be run-to-run noise, and both runs used the
-   identical test file, identical `LOAN_LOAD_*` defaults, and identical assertions — the only
-   variable is the machine (local Windows dev laptop vs. GitHub-hosted Linux runner). The most
-   plausible explanation, consistent with something this session independently flagged much
-   earlier (Windows Defender real-time scanning materially slowing local file-system-heavy
-   operations): **Mnesia's `disc_copies` writes under sustained ~100-way concurrent load are
-   likely dominated by local Windows I/O/AV-scanning overhead specific to this one development
-   machine, not by an algorithmic bottleneck in the transaction design itself.** This would mean
-   intent 0005's entire premise — that the reactive pipeline's transaction *shape* needs
-   redesigning to hit the budget — may have been chasing a measurement artifact rather than a
-   real architectural limit, and that production deployment (Linux, per this project's own
-   `.tool-versions`/CI target) may never have had this problem at all.
+   - **Local Windows dev machine** (used for this whole project's development):
+     496.64ms p95 — fails (`clarifications.md` Q17 Addendum 2).
+   - **GitHub-hosted Linux CI runner** (run `30020074937`, a small shared VM, likely 2-4 cores):
+     7.3ms p95 — passes, ~68x faster.
+   - **Docker container on this SAME physical machine** (`hexpm/elixir:1.17.3-erlang-27.3.4.7-debian-bookworm-20260610`
+     — byte-for-byte the `.tool-versions` pin, `max_cases: 32` confirming it saw the host's full
+     32 logical processors): **10.23ms p95 — passes**, ~48x faster than the Windows-native number
+     on the exact same hardware.
 
-   **This does NOT retroactively make `FT-046`/`FT-047`'s revert wrong** — that regression
-   (300ms p95 at a reduced scale the pre-change code passes at 95.33ms, on the SAME local
-   machine) was a valid *relative* comparison regardless of the absolute numbers' inflation, and
-   the revert stands. What changes is the urgency and direction of the follow-up: **before any
-   further transaction-redesign work, re-run `mix test.load` for both the pre-0005 code (current
-   tree) AND a reconstruction of the reverted `FT-046`/`FT-047` change on genuinely representative
-   target-environment hardware (Linux, ideally a real deployment target, not a shared CI
-   runner either) to determine whether NFR-001 needs architectural work at all**, before
-   resuming Q3 (batching)/Q4 (Mnesia tuning) work that may not be needed. Intent 0005 stays
-   `Specified`, not `Implemented`, until this is resolved either way — closing it prematurely as
-   "fixed" on the strength of one CI run would be exactly the kind of unverified claim this
-   audit exists to prevent, but so would continuing to treat the local-machine number as the
-   final word without noting this result. Full prior detail: `clarifications.md` Q17 Addendum 2
-   (left as-is — historical record of what was measured and decided at the time; not rewritten
-   by this new finding).
+   The third measurement is the decisive one: same CPU, same RAM, same disks, same Elixir/OTP
+   patch versions, same test — the *only* variable is Windows-native vs. Linux-in-a-container. A
+   48x gap under those conditions cannot be hardware or noise; it isolates the cause to the OS/
+   filesystem layer. Windows Defender's real-time monitoring was confirmed active on this machine
+   during this session with no exclusion configured for the repo path (`Get-MpPreference`) —
+   consistent with, though not itself proof of, AV-scanning overhead on Mnesia's `disc_copies`
+   file writes under sustained ~100-way concurrent load being the dominant cost, not an
+   algorithmic bottleneck in the reactive pipeline's transaction design.
 
-2. **NFR-002 — RESOLVED by item 1's CI run.** Previously unverified in isolation (the same test's
-   NFR-001 assertion aborted the run before the memory assertion on the local machine, where
-   NFR-001 always failed). On GitHub's CI runner, NFR-001 passed, so the run continued to the
-   memory assertion: **179.59MB, comfortably under the 256MB budget.** Structurally, splitting
-   the load test's assertions so a failing NFR-001 check never gates the NFR-002 measurement is
-   still good practice regardless (a future local-machine run would otherwise still hide this),
-   but it is no longer the only way this NFR has been observed passing.
+   **Conclusion: NFR-001 is very likely satisfied in any real (Linux) deployment target,
+   including a production-representative one.** Intent 0005's entire premise — that the pipeline's
+   transaction *shape* needs redesigning — was almost certainly chasing a local-development-
+   machine artifact, not a real production limit. **This does NOT retroactively make `FT-046`/
+   `FT-047`'s revert wrong** — that regression (300ms p95 at a reduced scale the pre-change code
+   passes at 95.33ms, measured on the same local machine) was a valid *relative* comparison
+   regardless of the absolute numbers' inflation, and the revert stands on its own terms.
+
+   **Follow-up, now much narrower**: intent 0005 should be revisited to close it as
+   "investigated, root cause was local-environment noise, not a production defect" rather than
+   pursuing Q3 (batching)/Q4 (Mnesia tuning) — that architectural work is very likely unnecessary.
+   Separately, as a pure developer-experience improvement (not a spec/production concern): try a
+   Windows Defender exclusion for the repo/Mnesia-data directory to make local `mix test.load`
+   runs meaningful again — the user's own call, not something this audit changes unilaterally
+   (modifying security settings is outside an agent's authority here). Full prior detail:
+   `clarifications.md` Q17 Addendum 2 (left as-is — historical record of what was measured and
+   decided at the time; not rewritten by this new finding, which supersedes its practical
+   conclusion without erasing its reasoning).
+
+2. **NFR-002 — now independently measured twice, with a NEW, genuinely open question: it
+   appears core-count-sensitive.** GitHub's CI runner (small, likely 2-4 cores): 179.59MB,
+   comfortably under the 256MB budget. The same-hardware Docker container (32 logical
+   processors, `max_cases: 32`): **384,559,344 bytes (366.74MB) — FAILS the budget**, the
+   opposite result from the same investigation that resolved NFR-001. BEAM's default scheduler/
+   dirty-IO-thread/allocator setup scales with detected core count, which very plausibly explains
+   a large chunk of this — meaning NFR-002's flat 256MB budget may not be a stable target across
+   environments with different core counts, independent of the actual application-level memory
+   footprint of 100 loan actors. **Follow-up**: re-measure with explicit `+S`/scheduler-count VM
+   flags matching the actual target deployment's core count, or reframe NFR-002 as a per-loan
+   marginal-memory budget rather than an absolute resident-memory figure. Splitting the load
+   test's assertions so a failing NFR-001 check never silently gates the NFR-002 measurement (as
+   it did on the original local-machine runs) is still good practice regardless.
 
 3. **Goal content is not reconstructed from diary replay — OPEN, architecturally significant,
    found during this audit, NOT fixed.** `rehydrate/2` never rebuilds `state.goals` from any

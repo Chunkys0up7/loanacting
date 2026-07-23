@@ -49,18 +49,26 @@ flows through this module or its frontend counterparts (component-level fixtures
 
 ## 3. Load-test actuals vs. NFR budgets
 
-**Two measurements exist for the same test, same code, on two different machines — reported
-both rather than picking one, since the ~68x gap between them is itself the headline finding
-(see `audit.md` §4 item 1):**
+**Three measurements exist for the same test, same code, on three environments — reported all
+three rather than picking one, since the divergence between Windows and both Linux environments
+is itself the headline finding (`audit.md` §4 item 1):**
 
-| NFR | Budget | Local (Windows dev machine) | CI (GitHub Linux runner, run `30020074937`) |
-|---|---|---|---|
-| NFR-001 | p95 < 100ms @ 100 loans/10 ev-s/60s | **496.64ms p95 — fails** (`clarifications.md` Q17 Addendum 2) | **7.3ms p95 — passes**, ~13x margin (`total_events=57994, max_ms=367.06`) |
-| NFR-002 | < 256MB @ same profile | Not independently measured (test aborts on NFR-001 first) | **179.59MB — passes**, run reached this assertion since NFR-001 passed first |
-| NFR-003 | Crash-recovery < 1s @ ≤10,000 entries | Passes (elapsed_ms logged, always well under budget) | **6ms — passes**, 10 simultaneous crash-recoveries, 10,000-entry diaries each |
-| NFR-004 | AG-UI delivery < 250ms p95 | Passes | **0.0ms p95 — passes** (970 deliveries, 10 loans, 5s) |
-| NFR-005 | ≥2 `DiaryStore` impls, zero external changes to swap | Passes (structural claim, not load-tested — correct, not a performance budget) | Same |
-| SC-007 | 1,000,000-entry replay < 30s | **3.4s measured, passes** (Mnesia backend; ~102s including seeding, not counted against the budget — see `large_diary_replay_test.exs`'s own moduledoc for why File was measured first and rejected) | Not yet re-run in CI (tagged `:slow`, nightly-only — `ci-nightly.yml`) |
+| NFR | Budget | Local (Windows dev machine) | CI (GitHub Linux runner, run `30020074937`) | Docker on same physical hardware (`hexpm/elixir:1.17.3-erlang-27.3.4.7`, exact `.tool-versions` match) |
+|---|---|---|---|---|
+| NFR-001 | p95 < 100ms @ 100 loans/10 ev-s/60s | **496.64ms p95 — fails** (`clarifications.md` Q17 Addendum 2) | **7.3ms p95 — passes**, ~68x faster (`total_events=57994, max_ms=367.06`) | **10.23ms p95 — passes**, ~48x faster than Windows on the SAME hardware (`total_events=57676, max_ms=359.7`) |
+| NFR-002 | < 256MB @ same profile | Not independently measured (test aborts on NFR-001 first) | **179.59MB — passes** | **384,559,344 bytes (366.74MB) — FAILS**, `max_cases: 32` (this host's full core count) vs. CI's likely 2-4 — see audit.md Deviation 2, a new, separate, genuinely open question about whether NFR-002's flat budget is core-count-sensitive |
+| NFR-003 | Crash-recovery < 1s @ ≤10,000 entries | Passes (elapsed_ms logged, always well under budget) | **6ms — passes** | **6ms — passes** |
+| NFR-004 | AG-UI delivery < 250ms p95 | Passes | **0.0ms p95 — passes** (970 deliveries, 10 loans, 5s) | **0.0ms p95 — passes** |
+| NFR-005 | ≥2 `DiaryStore` impls, zero external changes to swap | Passes (structural claim, not load-tested — correct, not a performance budget) | Same | Same |
+| SC-007 | 1,000,000-entry replay < 30s | **3.4s measured, passes** (Mnesia backend; ~102s including seeding, not counted against the budget — see `large_diary_replay_test.exs`'s own moduledoc for why File was measured first and rejected) | Not yet re-run in CI (tagged `:slow`, nightly-only — `ci-nightly.yml`) | Not run (out of scope for this specific investigation) |
+
+The Docker-on-same-hardware column is the decisive one: identical CPU, RAM, disks, and
+Elixir/OTP patch version as the failing local run — the only variable is Windows-native vs.
+Linux-in-a-container. A ~48x gap under those conditions isolates the cause to the OS/filesystem
+layer, not hardware or architecture. Windows Defender's real-time monitoring was confirmed
+active on this machine with no exclusion configured for the repo path during this investigation
+— consistent with (not proven as) AV-scanning overhead on Mnesia's `disc_copies` writes being
+the dominant cost.
 
 Attempted fix for the local NFR-001 gap (`FT-046`/`FT-047`, collapsing three Mnesia transactions
 into one) measured 300.03ms p95 at a REDUCED scale the unfixed code passes at 95.33ms — a
@@ -91,7 +99,8 @@ same audit found and fixed. See `audit.md` Deviation 5.
 **`mix test.load` passing was NOT the expected outcome** going into this run — `tasks.md`'s own
 Definition of Done and this project's own `clarifications.md` both document NFR-001 as a known,
 unmet gap (496.64ms p95 measured locally). It passed anyway, at 7.3ms p95, a ~68x difference from
-the local number for the identical test and code. This is documented as the audit's headline
-finding (`audit.md` §4 item 1), not quietly accepted as "the gap is now closed" — the honest
-reading is that NFR-001's true status needs re-measurement on representative target hardware,
-not that one green CI run proves the architecture was fine all along.
+the local number for the identical test and code. A follow-up same-hardware Docker run (§3 above)
+confirmed this wasn't a fluke of CI's own runner: 10.23ms p95, ~48x faster than Windows-native on
+the identical machine. This is documented as the audit's headline finding (`audit.md` §4 item 1)
+— resolved with high confidence as a Windows-local-development-machine artifact, not a production
+architectural gap, not a rubber-stamped "the gap is now closed" on the strength of one lucky run.

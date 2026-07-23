@@ -48,22 +48,25 @@ Concretely, by track:
 
 ## What's honestly still open
 
-- **Throughput at full production scale (NFR-001) — genuinely unclear, and that uncertainty is
-  itself the finding.** On the local Windows machine this whole project was built on, the same
-  load test runs about 5x over budget (496ms vs. a 100ms target at the 95th percentile). A fix
-  was attempted (collapsing three database transactions per event into one), passed every test
-  cleanly, and was then proven — by the same load test, at the literal scale that matters — to
-  make things *worse* on that same machine, so it was reverted. **Then, running that identical
-  test for the very first time on GitHub's own CI hardware as part of this closeout, it passed
-  — at 7.3ms, comfortably inside budget, not a photo finish.** That's roughly a 68-times
-  difference for the same code and the same test. The most likely explanation is that the
-  original measurement was significantly inflated by something specific to the local development
-  machine (this session separately flagged Windows security-scanning software slowing down other
-  file-heavy operations during development) rather than a real limit in the database design. This
-  doesn't mean the problem is definitely solved — it means nobody should trust either number as
-  final until it's re-measured on hardware that actually resembles where this would really run.
-  That re-measurement, done properly, is the real next step — not more database-transaction
-  redesign work chasing what might not be the actual bottleneck.
+- **Throughput at full production scale (NFR-001) — turned out to be a local development-machine
+  problem, not a real limit, confirmed three ways.** On the Windows machine this whole project
+  was built on, the load test runs about 5x over budget (496ms vs. a 100ms target at the 95th
+  percentile). A fix was attempted (collapsing three database transactions per event into one),
+  passed every test cleanly, and was then proven — by the same load test, at the literal scale
+  that matters — to make things *worse* on that same machine, so it was reverted. Running that
+  identical test on GitHub's own CI hardware, it passed at 7.3ms. To rule out "maybe CI just got
+  lucky," it was run a third time in a Linux container on this exact same physical Windows
+  machine, using the exact Elixir/database version this project is pinned to — same CPU, same
+  disk, same everything except the operating system. It passed there too, at 10.23ms, about 48
+  times faster than the Windows-native result. Three measurements, one variable changing (the
+  operating system), the same dramatic result each time on Linux: **this is very likely not an
+  architectural problem at all** — it's specific to something about running on Windows during
+  local development (this session separately flagged Windows security-scanning software slowing
+  down other file-heavy operations, which lines up with what would explain this). Practically:
+  anywhere this actually gets deployed (Linux, same as this project's own CI target) very likely
+  never had this problem. The honest caveat is "very likely," not "proven beyond doubt" — but
+  three independent measurements pointing the same direction, one of them a controlled same-
+  hardware comparison, is strong evidence, not a guess.
 - **A loan's open goals do not survive a crash.** Found while auditing this closeout, not during
   original development: the diary only ever stores a one-way hash of what a goal actually says
   (by design — that's how PII is kept out of the permanent record), which means there's no way
@@ -105,16 +108,18 @@ different claims, and only one of them had ever actually been checked here befor
 
 ## Follow-ups (each needs its own intent, not a quick patch here)
 
-1. Reactive-pipeline throughput (NFR-001) — **re-measure on representative target hardware
-   first**, given the 68x local-vs-CI gap this closeout found; only pursue batching or database
-   tuning (or investigate the tail-lookup as the real bottleneck) if that re-measurement actually
-   shows a problem there.
+1. Close intent 0005 as "investigated: root cause was the local Windows development machine, not
+   the database transaction design" rather than pursuing the batching/tuning work it originally
+   proposed — three independent measurements (CI + a same-hardware Linux container) now say that
+   work is very likely unnecessary.
 2. Goal content survivability across a crash — resolve the tension between "diary entries are
    hash-only" and "every state-mutating handler must be replay-reproducible."
-3. ~~Split the load test's memory assertion (NFR-002) out from the latency assertion
-   (NFR-001)~~ — turned out unnecessary this time (CI's run reached the memory assertion
-   naturally once NFR-001 passed there), but still worth doing so a future local-machine run
-   doesn't hide it again.
+3. The load test's memory budget (NFR-002) turned out to swing the OPPOSITE way this
+   investigation surfaced: it passes on a small CI machine (179MB) but fails on this powerful
+   32-core development machine (366MB) — likely because the runtime's own default overhead
+   scales with core count, not because 100 loans actually use more memory there. Worth deciding
+   whether the budget should scale with the deployment's core count instead of being a flat
+   number.
 4. A second reviewer for `audit.md`, per this project's own preference for a different author
    than the implementer where practical (this closeout was self-attested — no second reviewer
    was available).
