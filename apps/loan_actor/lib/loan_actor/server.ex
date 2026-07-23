@@ -75,6 +75,18 @@ defmodule LoanActor.Server do
   tool's own diary pair and AG-UI sequence, no extra effect-application
   diary entry.
 
+  ## Gate-version pinning (intent 0003, ADH-006; FR-011)
+
+  `invoke_tool/4` resolves and pins a per-`(loan_id, gate_id)` `%LoanActor.Gate{}`
+  the first time `evaluate_gate` is invoked for that `gate_id` on this loan
+  (`gen_state.gate_pins`), via the exposed `pin_gate/2`. Every subsequent
+  evaluation of the same `gate_id` on the same loan reuses that pinned
+  version even if the underlying pack is later updated on disk (a NEW
+  loan's first evaluation resolves fresh, so it naturally picks up
+  whatever is current by then — no special-casing needed, since each loan
+  is its own isolated `gen_state`). See `pin_gate/2`'s own doc for the
+  cross-restart durability gap this task does not yet close.
+
   ## Subscribe (FT-025)
 
   `subscribe/2` starts a supervised `LoanActor.AGUI.Subscriber`
@@ -148,6 +160,7 @@ defmodule LoanActor.Server do
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Event
+  alias LoanActor.Gate
   alias LoanActor.HITLRequest
   alias LoanActor.Idempotency
   alias LoanActor.IllegalTransitionError
@@ -423,7 +436,8 @@ defmodule LoanActor.Server do
       state: State.new(%{loan_id: loan_id}),
       store: store,
       subscribers: [],
-      hitl_requests: %{}
+      hitl_requests: %{},
+      gate_pins: %{}
     }
   end
 
@@ -471,7 +485,7 @@ defmodule LoanActor.Server do
         end
       end)
 
-    %{loan_id: loan_id, state: state, store: store, subscribers: [], hitl_requests: %{}}
+    %{loan_id: loan_id, state: state, store: store, subscribers: [], hitl_requests: %{}, gate_pins: %{}}
   end
 
   defp diary_store, do: Application.get_env(:loan_actor, :diary_store, LoanActor.Diary.Mnesia)
@@ -667,6 +681,7 @@ defmodule LoanActor.Server do
   # ---- generic tool invocation (constitution Principle VIII) ----
 
   defp invoke_tool(gen_state, tool_name, args, loop) do
+    {gen_state, gate} = maybe_pin_gate(gen_state, tool_name, args)
     %{loan_id: loan_id, state: state} = gen_state
     invocation_id = "inv-#{System.unique_integer([:positive, :monotonic])}"
 
@@ -676,7 +691,8 @@ defmodule LoanActor.Server do
         state: state,
         loop: loop,
         actor: "system",
-        invocation_id: invocation_id
+        invocation_id: invocation_id,
+        gate: gate
       })
 
     {redacted_args, args_hash} = redacted_args_and_hash(tool_name, args)
@@ -692,6 +708,55 @@ defmodule LoanActor.Server do
     gen_state = append_tool_result_entry(gen_state, tool_name, invocation_id, result)
     gen_state = maybe_stream_tool_result(gen_state, tool_name, invocation_id, redacted_args, result)
     {gen_state, result}
+  end
+
+  defp maybe_pin_gate(gen_state, "evaluate_gate", %{"gate_id" => gate_id}), do: pin_gate(gen_state, gate_id)
+  defp maybe_pin_gate(gen_state, _tool_name, _args), do: {gen_state, nil}
+
+  @doc """
+  Resolves the `%LoanActor.Gate{}` pinned to `gate_id` for this loan
+  (FR-011). Already pinned (an `evaluate_gate` invocation for this
+  `gate_id` already happened this loan's lifetime) → returns the SAME
+  `%Gate{}`, even if the underlying pack has since been updated on disk.
+  Not yet pinned → resolves the CURRENT highest-version pack via
+  `LoanActor.Skill.Loader.resolve_gate/2`, pins it into `gen_state.gate_pins`,
+  and returns it (`nil`, unchanged `gen_state`, if no loaded pack declares
+  `gate_id` at all).
+
+  Exposed — not part of `contracts/loan-actor-api.md`'s public surface
+  (`gate-behaviour.md`'s own "no public invoke API" invariant: this is
+  never reachable from outside the actor) — for direct unit testability,
+  mirroring `maybe_trigger_planning/1`/`infer_doc_type/1`'s own
+  precedent: a live GenServer round-trip isn't needed to prove the
+  pin-vs-reresolve decision itself, only a `gen_state`-shaped map with a
+  `:gate_pins` key. `invoke_tool/4` calls this internally whenever
+  `evaluate_gate` is invoked (from whichever loop eventually triggers it,
+  per ADH-009's demo-pack wiring), so every real invocation is
+  automatically pinned with no further plumbing needed later.
+
+  Known limitation (not asked for by this task): `gate_pins` lives only in
+  `gen_state` — a supervisor restart loses it and the next `evaluate_gate`
+  call re-resolves fresh, silently breaking FR-011's guarantee across a
+  crash. Fixing this needs a diary entry that carries `gate_version` in
+  the clear to reconstruct from (`:tool_completed` only ever hashes its
+  result); that entry is ADH-007's `:decision`/`:escalated` deliverable,
+  not yet built — rehydrate-time reconstruction is deferred to that task.
+  """
+  @spec pin_gate(map(), String.t()) :: {map(), Gate.t() | nil}
+  def pin_gate(gen_state, gate_id) do
+    case Map.fetch(gen_state.gate_pins, gate_id) do
+      {:ok, gate} -> {gen_state, gate}
+      :error -> resolve_and_pin_gate(gen_state, gate_id)
+    end
+  end
+
+  defp resolve_and_pin_gate(gen_state, gate_id) do
+    {:ok, skills} = SkillLoader.load_all([])
+
+    case SkillLoader.resolve_gate(gate_id, skills) do
+      nil -> {gen_state, nil}
+      gate -> {%{gen_state | gate_pins: Map.put(gen_state.gate_pins, gate_id, gate)}, gate}
+    end
   end
 
   defp redacted_args_and_hash(tool_name, args) do

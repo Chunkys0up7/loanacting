@@ -27,7 +27,8 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | ADH-002 | Done | `9c8d4a8` |
 | ADH-003 | Done | `f172e2a` |
 | ADH-004 | Done | `88ecbf7` |
-| ADH-005 | Done | (pending commit) |
+| ADH-005 | Done | `5611eab` |
+| ADH-006 | Done | (pending commit) |
 
 ---
 
