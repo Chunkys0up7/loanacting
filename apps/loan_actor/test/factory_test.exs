@@ -11,6 +11,8 @@ defmodule LoanActor.FactoryTest do
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
   alias LoanActor.Factory
+  alias LoanActor.Skill
+  alias LoanActor.Skill.Loader
 
   describe "determinism" do
     test "entry/1 is byte-identical across calls" do
@@ -85,6 +87,91 @@ defmodule LoanActor.FactoryTest do
         assert length(entries) in 1..12
         assert [%Entry{sequence: 0} | _] = entries
       end
+    end
+  end
+
+  describe "skill/1 — happy (FT-037)" do
+    test "builds a %Skill{} with the documented defaults" do
+      skill = Factory.skill()
+
+      assert %Skill{id: "0099-factory-skill", name: "factory-skill"} = skill
+      assert skill.tools_required == ["verify_diary_chain"]
+      assert skill.files == []
+    end
+
+    test "every field is overridable" do
+      skill = Factory.skill(%{id: "0042-custom", name: "custom", tools_required: ["set_goal"]})
+
+      assert skill.id == "0042-custom"
+      assert skill.name == "custom"
+      assert skill.tools_required == ["set_goal"]
+    end
+  end
+
+  describe "write_skill_pack!/2 — happy + error (FT-037)" do
+    test "writes a pack that LoanActor.Skill.Loader accepts, matching skill_attrs/1's defaults" do
+      dir = Factory.unique_tmp_dir("loan_actor_factory_skill_pack")
+
+      assert ^dir = Factory.write_skill_pack!(dir)
+
+      assert {:ok, %Skill{} = loaded} = Loader.load_pack(Path.join(dir, "0099-factory-skill"))
+      assert loaded.name == "factory-skill"
+      assert loaded.version == "1.0.0"
+      assert loaded.tools_required == ["verify_diary_chain"]
+      assert String.contains?(loaded.body, "Body.")
+    end
+
+    test "overrides feed straight into the written front-matter" do
+      dir = Factory.unique_tmp_dir("loan_actor_factory_skill_pack_override")
+      pack_id = "0007-override-pack"
+
+      Factory.write_skill_pack!(dir, %{
+        id: pack_id,
+        name: "override-pack",
+        description: "During plan review, ask the operator to approve or reject.",
+        tools_required: ["request_operator_approval"]
+      })
+
+      assert {:ok, %Skill{name: "override-pack", tools_required: ["request_operator_approval"]}} =
+               Loader.load_pack(Path.join(dir, pack_id))
+    end
+
+    test "a pack naming an unresolvable tool is rejected by the real loader (error)" do
+      dir = Factory.unique_tmp_dir("loan_actor_factory_skill_pack_bad_tool")
+      pack_id = "0008-bad-tool"
+
+      Factory.write_skill_pack!(dir, %{id: pack_id, tools_required: ["not_a_real_tool"]})
+
+      assert {:error, {:unresolvable_tools, ["not_a_real_tool"]}} =
+               Loader.load_pack(Path.join(dir, pack_id))
+    end
+  end
+
+  describe "tool_invocation_diary_pair/2 — happy + boundary (FT-037)" do
+    test "continuing from a real tail produces a chain-linked :tool_invoked/:tool_completed pair" do
+      [tail] = Factory.chain(1, %{loan_id: "L-TOOLPAIR"})
+      {invoked, completed} = Factory.tool_invocation_diary_pair(tail)
+
+      assert invoked.type == :tool_invoked
+      assert completed.type == :tool_completed
+      assert :ok = Chain.verify_pair(tail, invoked)
+      assert :ok = Chain.verify_pair(invoked, completed)
+    end
+
+    test "outcome: :failed produces a :tool_failed second entry" do
+      [tail] = Factory.chain(1, %{loan_id: "L-TOOLPAIR-FAIL"})
+      {_invoked, completed} = Factory.tool_invocation_diary_pair(tail, %{outcome: :failed})
+
+      assert completed.type == :tool_failed
+    end
+
+    test "a nil tail anchors the pair as the diary's own first two entries (boundary)" do
+      {invoked, completed} = Factory.tool_invocation_diary_pair(nil, %{loan_id: "L-TOOLPAIR-GENESIS", tool_name: "set_goal"})
+
+      assert invoked.sequence == 0
+      assert invoked.type == :tool_invoked
+      assert completed.sequence == 1
+      assert :ok = Chain.verify_pair(invoked, completed)
     end
   end
 end

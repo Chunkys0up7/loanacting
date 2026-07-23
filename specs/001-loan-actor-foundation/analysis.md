@@ -139,3 +139,39 @@ Cross-artifact consistency check re-run over the amended spec 001 artifacts.
 ## Verdict
 
 **PASS.** No unresolved conflicts between spec.md, plan.md, data-model.md, contracts/, tasks.md, checklists, and constitution v1.2.0. Implementation may resume at FT-041 (Batch A parallel-eligible) per the amended dependency graph.
+
+---
+
+# Re-analysis — amendment 0005 (2026-07-22): reactive pipeline throughput
+
+Cross-artifact consistency check re-run over the amended spec 001 artifacts after intent 0005.
+
+## Constitution alignment (v1.2.0 — unchanged, no version bump)
+
+This amendment does not add or modify a constitutional Principle; it is a performance fix
+within already-binding invariants. No `.specify/memory/constitution.md` or `CLAUDE.md` change
+accompanies this commit (both stay as of intent 0004) — consistent with intent 0005's own
+Constraints section, which names no constitution bump.
+
+| Principle | Artifact evidence | Status |
+|---|---|---|
+| IV. Immutable diary | `append_with_dedup/4`'s combined-transaction invariant (`diary-store-behaviour.md` invariant 6) strengthens, not weakens, atomicity — a crash mid-write is now provably impossible by construction rather than merely narrow | ✅ |
+| V. Taxonomic tests | Track 15 (FT-046..048) taxonomy rows added to `tasks.md`'s coverage summary; `test-coverage.md` gained a "Reactive pipeline throughput" section | ✅ |
+| Test-guardian consult | Reviewed the taxonomy plan before implementation (see `clarifications.md` Q17 context); corrected one mis-scoped checklist item (atomicity test, not a nonexistent "orphaned reservation" simulation) and clarified that FT-046's race test replaces rather than duplicates FT-015's | ✅ |
+| Test-data-forge consult | Confirmed existing `Factory` helpers (`chain/2`/`next_entry/2` for nil-tail vs real-tail, the existing forged-`prev_hash` pattern) fully cover the new test cases — no new factory needed | ✅ |
+
+## Consistency findings
+
+| Where | Issue | Resolution |
+|---|---|---|
+| `spec.md` FR-019 vs `clarifications.md` Q17 | FR-019 deliberately states an outcome ("MUST hold NFR-001... without weakening FR-004/FR-005") rather than prescribing the transaction shape, since the mechanism was still open when the FR was drafted | Resolved by Q17 before `plan.md`'s design section was written; no conflict — FR-019's wording was written to accommodate whichever answer Q17 gave |
+| `clarifications.md` Q6/Q13 vs Q17 | Q6/Q13 are frozen per intent 0001/FT-017 precedent (once Specified, don't edit) | Addendum notes added to both (not edits to their resolved content) forward-referencing Q17; Q17 itself supersedes their transaction-shape consequence while leaving the composite-key/`{:duplicate, sequence}` decisions those Qs made untouched |
+| `tasks.md` FT-046 dependency on FT-015 | FT-015 (`Idempotency.check_and_record/3`) is partially retired by FT-047, one task later | Correct as written — FT-046 builds the new `DiaryStore` callback against the existing FT-015 substrate; FT-047 (not FT-046) is where `Idempotency`'s public API actually changes. No forward-reference to unbuilt work. |
+| `research.md` R-1 vs as-built system | R-1's original "one transaction per event" adopted answer was never fully realized (loan_state table never used; idempotency added two more transactions later without revisiting R-1) | Addendum added to R-1 documenting both divergences; 0005 restores R-1's original throughput intent rather than contradicting it |
+| `contracts/diary-store-behaviour.md` new callback vs `NFR-005` | Adding a callback that behaves differently per implementation (Mnesia collapses transactions, File does not) could be read as violating "switching requires zero changes outside the implementation module" | No violation: `NFR-005`'s invariant is about the **external contract** staying identical across implementations (same call, same return shape), not about internal implementation cost being identical — both implementations satisfy `{:fresh, ...} | {:duplicate, ...}` identically; `Server` code needs zero changes to switch backends |
+| `checklists/test-coverage.md` "no orphaned reservation" item (first draft) | Assumed a reservation step the collapsed design no longer has — caught during the test-guardian consult, before implementation started | Reworded to test transaction atomicity (forced abort leaves no trace in either table) instead |
+| `checklists/test-data-quality.md` | Not touched by this amendment | Correct — no new entities/structs are introduced, so no factory-inventory update is due |
+
+## Verdict
+
+**PASS.** No unresolved conflicts between `spec.md`, `plan.md`, `data-model.md`, `contracts/`, `clarifications.md`, `research.md`, `tasks.md`, checklists, and constitution v1.2.0 (unchanged). Implementation may proceed at FT-046 per the amended dependency graph. `FT-048`'s re-run of `FT-035`'s load test is the acceptance gate for closing this amendment — a failing re-run does not block landing FT-046/047 as correctness improvements, but does block treating `NFR-001` as satisfied and block this intent's closeout (`audit(0005)`).

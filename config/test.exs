@@ -8,6 +8,9 @@ config :loan_actor,
   diary_store: LoanActor.Diary.File,
   mnesia_dir: "priv/mnesia_test",
   # Tighter buffer to exercise slow-client resync (research R-2)
-  ag_ui_subscriber_buffer: 8
+  ag_ui_subscriber_buffer: 8,
+  # Distinct from the dev/prod default so `mix test` never clashes with a
+  # developer's own `mix run` on the same machine
+  http_port: 4999
 
 config :logger, level: :warning

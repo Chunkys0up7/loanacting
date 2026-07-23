@@ -13,8 +13,9 @@ defmodule LoanActor.Diary.FileTest do
   use LoanActor.Diary.StoreSharedTests, store: LoanActor.Diary.File
 
   alias LoanActor.Diary.File, as: FileStore
+  alias LoanActor.FileTestSupport
 
-  @dir Path.join(System.tmp_dir!(), "loan_actor_diary_file_test")
+  @dir FileTestSupport.dir()
 
   def store_opts, do: [dir: @dir]
 

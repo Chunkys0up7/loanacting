@@ -19,6 +19,18 @@ Phase 0 output of `/speckit-plan`. Each item lists the question, the answer we w
 
 **Source.** Erlang/OTP docs (Mnesia chapter, transaction sub-section); pragmatic experience reports from production Elixir systems running 10⁴-row-update/sec workloads on a single node.
 
+**Addendum (2026-07-22, intent 0005).** The as-built system diverged from "one
+`:mnesia.transaction/1` per event" in two ways this research didn't anticipate: (a) loan
+state was never actually stored in a `loan_state` Mnesia table read-modify-write per event —
+it lives in the GenServer's own memory and rehydrates via diary replay instead, so that part
+of the adopted answer never applied; (b) `FT-015`/`FT-017` added idempotency
+(`loan_idem`) as two *additional* Mnesia transactions per event on top of the diary append,
+without revisiting this research's transaction-count budget. `FT-035`'s load test found the
+resulting three-transactions-per-event shape misses `NFR-001` at full scale. Intent 0005
+restores this research's original one-transaction-per-event intent (for the diary-append +
+idempotency work that does hit Mnesia) via `DiaryStore.append_with_dedup/4` — see
+`clarifications.md` Q17.
+
 ---
 
 ## R-2 — AG-UI SSE backpressure in Bandit

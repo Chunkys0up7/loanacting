@@ -2,12 +2,15 @@
 id: "0001"
 slug: foundation-loan-as-actor
 title: Establish the loan-as-actor runtime foundation — supervised loan processes with diaries, three-loop harness, and AG-UI surface
-status: Draft
+status: Closed
 author: cameron
 created: 2026-05-26
+specified: 2026-05-26
+implemented: 2026-07-23
+closed: 2026-07-23
 supersedes: []
 depends_on: []
-execution_spec: null
+execution_spec: "specs/001-loan-actor-foundation/spec.md"
 ---
 
 # Intent 0001 — Loan-as-actor runtime foundation
@@ -108,3 +111,55 @@ A loan that crashes is restarted by its supervisor and rehydrates its state from
 This is the root of the intent tree. Every subsequent intent assumes the foundation as given.
 
 The `loan-as-actor.html` document at the repo root is the long-form rationale and should be the canvas for resolving Q1–Q7 — it already lays out BEAM, Mnesia, and the OTP supervision story in narrative form. `/speckit.clarify` should consume it.
+
+## Retrospective
+
+Closed 2026-07-23 per the post-implementation audit cycle (constitution §"Post-Implementation
+Audit Cycle", added by intent 0002). Full detail in `specs/001-loan-actor-foundation/{audit,
+report,test-evidence}.md`; summary here.
+
+**What held up.** The core architectural bet — a loan as a single supervised GenServer with
+three explicit, linter-enforced loops, diary-replay for crash recovery, and a hard `transition/2`
+gate on state mutation — proved out completely. Every one of Q1–Q7's recommendations was adopted
+as stated and none needed revisiting. The tool/skill layer added mid-build (intent 0004) slotted
+in cleanly without touching any already-merged code, confirming the diary's `Entry.validate_type/1`
+design (any atom, no fixed enum baked into merged modules) was the right call.
+
+**What didn't hold up — then turned out to hold up after all.** The reactive pipeline's
+throughput budget (NFR-001) failed at full scale on the local Windows development machine
+(496ms p95 vs. a 100ms budget), and the one fix attempted for it (intent 0005) was implemented,
+tested clean, and then proven by its own load test to be a regression rather than an improvement
+on that same machine — reverted. A same-day follow-up investigation then ran the identical test
+on GitHub's Linux CI runner (7.3ms p95) and, to rule out CI just getting lucky, a third time in a
+Linux container on the exact same physical hardware as the failing Windows run, using the exact
+pinned Elixir/OTP version (10.23ms p95) — both comfortably inside budget, both roughly 50-70x
+faster than the Windows-native number. Same code, same hardware in the third case, only the
+operating system changed: this is very likely a Windows-local-development-machine artifact
+(Windows Defender's real-time scanning was confirmed active with no exclusion for the repo,
+consistent with though not proof of the cause), not a real architectural limit — production
+deployment (Linux) almost certainly never had this problem. Full detail in `audit.md` §4 item 1.
+This does not retroactively make the intent-0005 revert wrong (that was a valid same-machine
+relative comparison), but it does mean the follow-up work that revert implied is very likely
+unnecessary. A second, deeper gap — a loan's open goals have no
+recoverable trace in the diary at all, since tool diary entries are hash-only by design — was
+found auditing this very closeout, not during original development; it does not block closing
+(the crash-safety and status-recovery guarantees this intent's success criteria actually asked
+for all hold), but it is a real, documented limit on how far "replay reproduces identical state"
+can honestly be claimed today.
+
+**What the audit itself found.** This repository's CI had never successfully scheduled a single
+job, on any push, since the workflow file was first added — a configuration bug entirely
+unrelated to the code it was supposed to be testing, caught only because this closeout insisted
+on citing a real green run rather than assuming one existed. Fixing it immediately surfaced three
+more real bugs (a test whose timeout only worked by chance at local scale, a test whose equality
+check only passed by timing luck on a fast local machine, and three intentional test fixtures
+dialyzer had never actually been run against locally) — a small, self-contained demonstration of
+why "tests pass on my machine" and "CI is green" are different claims, and why this project's own
+insistence on citing evidence rather than asserting completion is worth the friction it adds.
+
+**For whoever picks up the follow-ups**: intent 0005 should close as "investigated, root cause
+was local-environment noise, not the transaction design" rather than pursue batching or Mnesia
+tuning — that architectural work is very likely not needed, pending one more real-world
+confirmation if anyone wants full certainty. The goal-content-replay gap needs its own amendment
+deciding whether goal text is sensitive enough to need hash-only treatment — that one is real
+engineering work, not a loose end left by neglect.

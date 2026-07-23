@@ -30,6 +30,7 @@ defmodule LoanActor.Diary.Mnesia do
   alias LoanActor.Diary.Store
 
   @table :loan_diary
+  @idem_table :loan_idem
 
   # ---- behaviour callbacks ----
 
@@ -37,8 +38,9 @@ defmodule LoanActor.Diary.Mnesia do
   def init(opts) do
     with :ok <- ensure_dir(Keyword.get(opts, :dir)),
          :ok <- ensure_schema_and_start(),
-         :ok <- ensure_table() do
-      case :mnesia.wait_for_tables([@table], 10_000) do
+         :ok <- ensure_table(),
+         :ok <- ensure_idem_table() do
+      case :mnesia.wait_for_tables([@table, @idem_table], 10_000) do
         :ok -> :ok
         {:timeout, tabs} -> {:error, {:table_timeout, tabs}}
         {:error, reason} -> {:error, reason}
@@ -158,10 +160,25 @@ defmodule LoanActor.Diary.Mnesia do
 
   # ---- init plumbing ----
 
-  defp ensure_dir(nil), do: :ok
+  # No explicit :dir opt: fall back to `config :loan_actor, :mnesia_dir`
+  # (config.exs/dev.exs declare it, but nothing read it until this fix —
+  # `LoanActor.Server.init/1` always calls `store.init([])`, so this was
+  # the ONLY path that mattered for a real, non-test boot).
+  defp ensure_dir(nil) do
+    case Application.get_env(:loan_actor, :mnesia_dir) do
+      nil -> :ok
+      dir -> ensure_dir(dir)
+    end
+  end
 
   defp ensure_dir(dir) do
-    dir_charlist = String.to_charlist(Path.expand(dir))
+    expanded = Path.expand(dir)
+    # Unlike Diary.File, Mnesia does not create its own directory — a
+    # `create_schema` against a non-existent path fails with :enoent
+    # rather than creating it. Found running a real boot with a fresh
+    # (never-before-created) `mnesia_dir` config path.
+    File.mkdir_p!(expanded)
+    dir_charlist = String.to_charlist(expanded)
 
     if running?() and :mnesia.system_info(:directory) != dir_charlist do
       :stopped = :mnesia.stop()
@@ -172,6 +189,19 @@ defmodule LoanActor.Diary.Mnesia do
   end
 
   defp ensure_schema_and_start do
+    # `:mnesia` is listed in `extra_applications`, so OTP auto-starts it
+    # BEFORE `LoanActor.Application` runs — in its bare RAM-only default
+    # mode, with no disc-based schema for this node. `running?()` alone
+    # can't tell "properly initialized" apart from "auto-started in the
+    # wrong mode"; found the hard way running a real `iex -S mix` boot,
+    # where every existing test passed because each one explicitly calls
+    # `init(dir: <path>)` first, which happens to force exactly this
+    # stop+recreate cycle via `ensure_dir/1` — a path the Server's own
+    # unconfigured `store.init([])` never takes.
+    if running?() and not disc_schema_for_this_node?() do
+      :stopped = :mnesia.stop()
+    end
+
     unless running?() do
       case :mnesia.create_schema([node()]) do
         :ok -> :ok
@@ -187,6 +217,10 @@ defmodule LoanActor.Diary.Mnesia do
     {:schema_error, reason} -> {:error, {:schema_error, reason}}
   end
 
+  defp disc_schema_for_this_node? do
+    node() in :mnesia.table_info(:schema, :disc_copies)
+  end
+
   defp ensure_table do
     case :mnesia.create_table(@table,
            type: :ordered_set,
@@ -195,6 +229,21 @@ defmodule LoanActor.Diary.Mnesia do
          ) do
       {:atomic, :ok} -> :ok
       {:aborted, {:already_exists, @table}} -> :ok
+      {:aborted, reason} -> {:error, {:table_error, reason}}
+    end
+  end
+
+  # loan_idem — FT-015 idempotency table (data-model.md Mnesia schema):
+  # {{loan_id, event_id, source}, received_at}. Consumed by
+  # LoanActor.Idempotency.check_and_record/3.
+  defp ensure_idem_table do
+    case :mnesia.create_table(@idem_table,
+           type: :set,
+           attributes: [:key, :received_at],
+           disc_copies: [node()]
+         ) do
+      {:atomic, :ok} -> :ok
+      {:aborted, {:already_exists, @idem_table}} -> :ok
       {:aborted, reason} -> {:error, {:table_error, reason}}
     end
   end

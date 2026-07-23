@@ -6,6 +6,7 @@
 **Clarifications**: [`clarifications.md`](clarifications.md)
 **Constitution**: [`v1.2.0`](../../.specify/memory/constitution.md)
 **Amended**: 2026-07-21 by intent 0004 — agent functions are tools + skills (structure tree, Principle VIII row, tracks 12/14, FT-041..045).
+**Amended**: 2026-07-22 by intent 0005 — reactive pipeline throughput (`append_with_dedup/4`, track 15, FT-046..048; see "Reactive pipeline throughput design" below).
 
 ## Summary
 
@@ -214,6 +215,49 @@ Tasks will be sequenced under these tracks (ordering enforced by dependencies de
 12. **Skill loader + demo pack** *(0004; replaces "procedure loader stub")* — pack loading, trigger matching, reload, load-time tools_required validation.
 13. **CI wiring** — `mix test`, `mix dialyzer`, `mix credo --strict`, `npm test`, Playwright, load test.
 14. **Tool layer** *(0004)* — `LoanActor.Tool` behaviour, registry, 7 deterministic foundation tools, shared tool contract suite (FT-041..043, before the Server track).
+15. **Reactive pipeline throughput** *(0005)* — `DiaryStore.append_with_dedup/4` (behaviour + both implementations), `Server` reactive-path refactor onto it, `FT-035` load-test re-run as acceptance gate (FT-046..048).
+
+## Reactive pipeline throughput design *(0005)*
+
+**Outcome: implemented, load-tested, reverted.** The design below was built (`FT-046`/`FT-047`)
+and passed every test/lint/type gate, but `FT-048`'s load-test re-run showed it is a
+**regression**: worse p95 latency at every scale tested (300 ms at 20 loans vs. the pre-0005
+code's 95 ms passing there), and outright `GenServer.call` timeouts at full 100-loan scale
+(worse than the pre-0005 code's 496 ms — over-budget, but at least responsive). Both `FT-046`
+and `FT-047` were reverted; the code below is **not** what's in the tree. Left in place as a
+record of what was tried and why it didn't work — see `clarifications.md` Q17 Addendum 2 for
+the measured evidence and root-cause hypothesis (combining two tables into one transaction
+traded fewer-but-longer lock-holds for more Mnesia validation conflicts under ~100-way
+concurrent writers — transaction *count* was the wrong thing to optimize).
+
+`FT-035`'s load test found `NFR-001` does not hold at full `SC-001` scale — see
+`clarifications.md` Q17 for the full option analysis. The design that was attempted and reverted:
+
+- **New behaviour callback**: `DiaryStore.append_with_dedup(loan_id, event_id, source,
+  entry_builder)`, `entry_builder :: (tail :: entry | nil -> entry)`. Returns `{:fresh,
+  sequence, entry}` or `{:duplicate, sequence}`.
+- **`Diary.Mnesia`**: `:mnesia.dirty_read/2` peek on `loan_idem` first (near-zero cost, safe
+  because a single loan's events are only ever handled by that loan's one serialized
+  `Server` process — no concurrent writer can race this key). On a miss, one
+  `:mnesia.transaction/1` re-checks the key, reads the `loan_diary` tail, calls
+  `entry_builder.(tail)`, verifies chain linkage (`Chain.verify_append/2`, unchanged), writes
+  the diary entry, and writes `{received_at, sequence}` to `loan_idem` — one transaction,
+  down from three.
+- **`Diary.File`**: keeps the pre-0005 two-call internal shape (idempotency check against
+  Mnesia's `loan_idem`, then a File append) — there is no Mnesia transaction on this path to
+  fold into, and `File` is test-only (`NFR-001` is measured against Mnesia specifically).
+  Same external `{:fresh, ...} | {:duplicate, ...}` contract either way — `NFR-005`'s
+  "switching requires zero changes outside the implementation module" holds.
+- **`Server`**: `handle_clean_event/3` no longer calls `Idempotency.check_and_record/3`
+  directly. `apply_event/3` computes the `State.transition/2` attempt first (pure, unchanged
+  — including the `IllegalTransitionError` rescue path), builds an `entry_builder` closure
+  from whichever entry type/payload resulted, and calls `store.append_with_dedup/4` once.
+  `Idempotency.record_sequence/4` and the public two-phase API disappear; `Idempotency`
+  keeps the composite-key concept as transaction-scoped helpers consumed only from
+  `Diary.Mnesia`.
+- **Acceptance gate**: `FT-035`'s existing load test, re-run unmodified at its default scale
+  (SC-015). No new load-test file — the fix is proven against the same measurement that
+  found the gap.
 
 ## Phase 3 — Implement
 
@@ -229,6 +273,7 @@ Driven by `tasks.md`. Tests are committed alongside (or before) the code they ex
 | Frontend coupling to AG-UI implementation drift | Cross-stack contract test pins event shapes against `contracts/ag-ui-events.md`. |
 | Operator-id stub leaks into production | Production builds set `:require_operator_id` to `true`; the stub-only branch is excluded by `Mix.env() == :prod`. |
 | Umbrella complexity for a small team | Documented in quickstart; revisit if the umbrella becomes a hindrance — splitting to two repos is a later intent, not an emergency. |
+| Collapsing transactions (0005) doesn't fully close the NFR-001 gap | **Realized, worse than anticipated**: `FT-035`'s re-run (SC-015) showed a regression (worse latency at all scales, timeouts at full scale), not just an insufficient improvement — `FT-046`/`FT-047` were reverted. Per this row's own mitigation, escalate to Q3 (batching) or Q4 (Mnesia tuning) as a follow-up amendment; do not re-attempt cross-table transaction merging without addressing the lock-contention mechanism `clarifications.md` Q17 Addendum 2 describes. |
 
 ## Re-check after Phase 1
 

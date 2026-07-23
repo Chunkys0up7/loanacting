@@ -1,8 +1,8 @@
 # Clarifications — Loan-Actor Foundation
 
 **Spec**: [`spec.md`](spec.md) · **Intent**: [`intents/0001-foundation-loan-as-actor.md`](../../intents/0001-foundation-loan-as-actor.md)
-**Resolves**: Q1–Q7 listed in spec.md and intent 0001; Q8–Q11 from amendment intent 0004 (2026-07-21).
-**Date**: 2026-05-26 (Q1–Q7) · 2026-07-21 (Q8–Q11)
+**Resolves**: Q1–Q7 listed in spec.md and intent 0001; Q8–Q11 from amendment intent 0004; Q12 from FT-014 implementation.
+**Date**: 2026-05-26 (Q1–Q7) · 2026-07-21 (Q8–Q12)
 
 Each resolution below is now binding for `/speckit-plan` and downstream. Reopening a resolved question requires an amendment intent.
 
@@ -112,6 +112,12 @@ Both implementations MUST pass the same property-based test suite.
 - The Event struct gains `source` as a required field with a fixed enum (foundation: `:operator`, `:system`, `:test`). Adding new sources requires an amendment.
 - The idempotency check is a Mnesia `read` keyed on `{loan_id, event_id, source}` within the transaction that would append the diary entry. Hit → no-op + return `:duplicate`.
 
+**Addendum (2026-07-22, intent 0005).** `FT-017`'s Q13 below split this single-transaction
+design into two separate Mnesia transactions plus the diary append's own third transaction —
+a drift from what's resolved here that a load test later showed doesn't hold `NFR-001` at
+scale. Intent 0005 / Q17 restores a single-transaction shape (the composite key and
+`:duplicate` semantics above are unchanged).
+
 ---
 
 ## Q7 — Operator authentication for foundation
@@ -179,6 +185,279 @@ in what happens to it.
 
 ---
 
+## Q12 — PIIGuard.apply/1: hard gate or redact-and-continue? *(FT-014, 2026-07-21)*
+
+**Resolution: Hard gate.** Any value anywhere in the payload matching a configured PII
+pattern → `{:error, :pii_violation, paths}`, the whole event rejected. No match →
+`{:ok, payload, []}`. `redacted_paths` is always `[]` in foundation.
+
+**Rationale.** `tasks.md` FT-014 documents `apply/1` returning one of two distinct shapes
+(`{:ok, stripped_payload, redacted_paths}` or `{:error, :pii_violation, paths}`) without
+stating what distinguishes them; `data-model.md`'s narrative ("reject... replace flagged
+values with `<redacted>`...") reads ambiguously between the two. Per PD-1 (no invention —
+stop and resolve rather than guess), this was raised to the operator directly rather than
+silently decided. Confirmed: hard gate is simplest, safest, and consistent with
+data-model.md's closing note that vault-backed redact-and-substitute is a **future** intent
+— foundation's `PIIGuard` only gates; `redacted_paths` is a forward-compatible field, not
+yet exercised with non-empty values.
+
+**Locked decisions.**
+- `priv/pii_patterns.yml` holds four value-pattern categories (ssn, account_number,
+  routing_number, date_of_birth) in a restricted hand-parsed grammar — **not** general YAML
+  (no yaml dependency is declared in any intent's Dependencies section; adding one would be
+  an undeclared-dependency anti-vibe violation, so a minimal reader was written instead,
+  mirroring the skill-format front-matter cap).
+- `paths` in the `:error` tuple are root-relative key-paths (string map keys and/or list
+  indices) to every offending value, collected across the whole payload (not short-circuited
+  on first match).
+
+---
+
+## Q13 — send_event/2's {:duplicate, sequence} vs. loan_idem's bare received_at *(FT-017, 2026-07-21)*
+
+**Resolution: extend the `loan_idem` record to carry the sequence.** Value becomes
+`{received_at, sequence}`; `Idempotency.check_and_record/3` returns `{:duplicate, sequence}`
+(the ORIGINAL sequence) instead of bare `:duplicate`. `data-model.md`'s Mnesia schema line
+updated to match.
+
+**Rationale.** `contracts/loan-actor-api.md` documents `send_event/2` returning
+`{:duplicate, sequence}`, but `data-model.md`'s `loan_idem` schema only stored
+`received_at` — no way to source `sequence` as specified. Two candidate fixes existed
+(extend the record; or simplify the contract to bare `:duplicate` for foundation); per
+PD-1 this was raised directly rather than guessed. Confirmed: extend the record.
+
+**Locked decisions.**
+- Two-phase reserve-then-fill: `check_and_record/3` atomically reserves the key
+  (`sequence: nil`) so the exactly-one-`:fresh`-winner guarantee (proven under raw
+  concurrency, FT-015's race test) still holds even though the sequence isn't known until
+  after the diary append. `record_sequence/4` fills it in once the caller (the Server,
+  FT-017 — a single serialized GenServer mailbox per loan) knows the real sequence.
+- Known, accepted limitation: if the diary append fails after a successful reservation,
+  the key stays reserved with `sequence: nil` forever (no rollback). Out of scope — an
+  extremely narrow failure mode neither source document addresses; not building
+  compensating-transaction logic for it.
+
+**Addendum (2026-07-22, intent 0005).** `FT-035`'s load test found this two-phase design
+(three Mnesia transactions per event, counting the diary append) costs more throughput than
+`NFR-001`'s budget allows at full scale. Intent 0005 / Q17 collapses this back to one
+transaction — which also closes the "known, accepted limitation" above outright, since a
+single all-or-nothing transaction never leaves a partially-reserved key on the table. The
+`{received_at, sequence}` value shape and the `{:duplicate, sequence}` return contract this Q
+locked are unchanged.
+
+---
+
+## Q14 — Where do a skill-triggered tool's arguments come from? *(FT-018, 2026-07-21)*
+
+**Resolution: the skill's own `description` becomes the tool's args.** When a matched skill
+names `set_goal` in `tools_required`, the periodic loop invokes it with
+`{"description" => skill.description}`. `verify_diary_chain` (no required args) runs
+unconditionally every heartbeat as a housekeeping self-check, independent of skill matching.
+
+**Rationale.** `contracts/skill-format.md` specifies that a skill *names* required tools
+(`tools_required: [String.t]`) but nowhere specifies how a skill supplies a named tool's
+actual arguments — a whole missing mechanism, not a small gap. Raised directly (PD-1).
+Confirmed: reuse the skill's own trigger text rather than inventing a new per-tool argument
+binding scheme. No new mechanism was added; `description` already exists on every skill.
+
+**Locked decisions.**
+- `verify_diary_chain` is NOT skill-gated — it is a periodic loop self-check that fires
+  every heartbeat regardless of which (if any) skill matches.
+- Diary discipline for periodic tool invocations (constitution Principle VIII): every
+  invocation appends `:tool_invoked` then `:tool_completed`/`:tool_failed`, payload carrying
+  the tool name, invocation id, and a **hash** of the (PII-guarded) args/result — never the
+  raw values, per `contracts/tool-behaviour.md` invariant 4.
+- `LoanActor.State` gained `add_goal/2`, `satisfy_goal/2`, `record_heartbeat/2` — mutation
+  helpers for the state surface `transition/2` deliberately does not cover (goals and
+  `last_heartbeat_at` are not part of the status state-machine graph). All three use the
+  same bare `%{state | ...}` form `transition/2` already uses, keeping every legal mutation
+  centralized in this one module.
+
+---
+
+## Q15 — Where does request_document's doc_type argument come from? *(FT-019, 2026-07-21)*
+
+**Resolution: keyword-match open goals' descriptions for one of "income"/"identity"/
+"appraisal"; default "income" if none mention one.**
+
+**Rationale.** `request_document`'s schema requires `doc_type` as one of a fixed enum —
+unlike `set_goal`'s free-text `description` (Q14's resolution doesn't transfer directly).
+Neither the `Goal` struct nor `contracts/skill-format.md` carries a structured `doc_type`
+field. Raised directly (PD-1) rather than silently defaulting. Confirmed: the planning loop
+scans `state.goals` (open ones only), keyword-matching each description against the three
+enum words; first match wins; `"income"` if none match — documented as the foundation
+placeholder, not a real business rule.
+
+**Locked decisions.**
+- `LoanActor.Server.infer_doc_type/1` is exposed (not part of `contracts/loan-actor-api.md`)
+  specifically so this pure decision is directly unit-testable — diary entries carry only a
+  **hash** of tool args/results (Principle VIII), so which `doc_type` was actually chosen can
+  never be recovered by reading the diary from outside.
+- `LoanActor.Server.maybe_trigger_planning/1` is exposed for the same reason: an
+  integration-level "did NOT trigger planning again" assertion is confounded by the periodic
+  loop's own independent `verify_diary_chain` invocation, since diary entries can't reveal
+  *which* tool a `:tool_invoked` entry is for.
+- `:plan` fires specifically after a successful `:goal_set` reactive transition — a literal
+  reading of "when goals are set" (FT-019's task text), not "any state change re-plans".
+- `run_planning/1` diary-logs `:skill_activated` for every match, regardless of which tool
+  (if any) it acts on — mirrors `run_matched_skills/1`'s (FT-018) established behavior;
+  consistency, not a new rule.
+
+---
+
+## Q16 — Subscriber backpressure signal *(FT-024, 2026-07-21, no answer returned — proceeded with the flagged recommendation)*
+
+**Resolution: `Process.info(self(), :message_queue_len)`** — the Subscriber's OWN Erlang
+process mailbox depth, checked at the start of each `:deliver` cast.
+
+**Rationale.** `research.md` R-2 says resync mode engages when "the subscriber's mailbox
+exceeds the bound", but `send/2` never blocks or reveals whether a receiver is keeping up —
+some concrete signal has to stand in for "mailbox". A clarifying question was raised (two
+options: read `message_queue_len` literally, or invent an explicit ack protocol between
+subscriber and owner) but no answer came back; proceeded with the flagged recommendation
+rather than blocking indefinitely, and recorded here for easy revisit.
+
+**Locked decision.** `message_queue_len` is simple and needs no new protocol, but is
+strictly weaker than an ack-based design: a slow HTTP/SSE *owner* process holding its own
+mailbox full of undelivered `:ag_ui_event` messages does not show up in the *subscriber's*
+mailbox unless the loan actor is also casting in a tight burst. Revisit once FT-027 (the
+HTTP layer, the actual "slow client" scenario) exists and can prove whether this is
+sufficient in practice.
+
+---
+
+## Q17 — Reactive pipeline throughput fix *(intent 0005, 2026-07-22)*
+
+**Resolution: collapse the three per-event Mnesia transactions (idempotency reserve, diary
+append, idempotency fill) into one.** A cheap `:mnesia.dirty_read/2` duplicate-peek runs
+first (no transaction cost); only a non-duplicate event enters a single real
+`:mnesia.transaction/1` that re-checks the key, computes the diary entry, verifies chain
+linkage, writes the diary entry, and writes the final `{received_at, sequence}` idempotency
+record — all atomically. Mnesia-level tuning (Q4 of intent 0005's open questions;
+`dump_log_write_threshold` was already raised by `FT-035`) is evaluated opportunistically
+alongside this but is not itself the primary fix. Batching/pipelining (Q3) and moving
+idempotency off Mnesia entirely (Q2) are explicitly **not** adopted in this pass.
+
+**Rationale.** Intent 0005 posed four candidate directions (Q1: collapse transactions; Q2:
+ETS-backed dedup with async Mnesia persistence; Q3: batch/pipeline writes; Q4: Mnesia tuning
+alone). Q2 was rejected outright: `LoanActor.Diary.Entry` carries no `event_id`/`source`
+field today, so an ETS-only dedup table cannot be reconstructed from diary replay after a
+crash without a `data-model.md` change to the diary entry shape itself — a bigger, riskier
+change than this intent's scope, and one that trades a durability guarantee for throughput
+without the constraints section's required explicit justification. Q3 was deferred: nothing
+in the current design requires cross-event batching, and intent 0005's own non-goals rule out
+building a general-purpose batching framework speculatively; it stays available as a
+follow-up if Q1 alone doesn't clear the budget. Q4 alone was judged insufficient on its own
+(the load test's root-cause analysis points at transaction *count*, not disk-log tuning, as
+the dominant cost) but costs nothing to apply alongside Q1.
+
+Q1 was chosen because it is the smallest change that removes the actual bottleneck
+(transaction count 3 → 1 per event), reinstates what Q6 originally specified before `FT-017`
+split it, requires no data-model change, and — as a direct side effect — eliminates the
+orphaned-reservation known limitation `FT-017`'s Q13 accepted. It does not, by itself,
+guarantee the full 496.64 ms → <100 ms improvement `NFR-001` needs (a 3x reduction in
+transaction *count* is not proven to be a 3x reduction in *latency*); `SC-015`'s re-run of
+`FT-035`'s load test is the actual acceptance gate. If Q1 alone does not clear the budget,
+this clarification is revisited and Q3/Q4 are escalated in a follow-up amendment rather than
+declaring victory on transaction-count reduction alone.
+
+**Locked decisions.**
+- `contracts/diary-store-behaviour.md` gains a new `DiaryStore` callback,
+  `append_with_dedup/4`, taking `(loan_id, event_id, source, entry_builder)` where
+  `entry_builder` is a function from the current tail (`entry | nil`) to the `%Entry{}` to
+  write if the event is fresh. Returns `{:fresh, sequence, entry}` or
+  `{:duplicate, sequence}` — never both a diary append and a `:duplicate` result.
+- `LoanActor.Diary.Mnesia`'s implementation performs the dirty-read peek, then the single
+  combined transaction described above.
+- `LoanActor.Diary.File`'s implementation keeps today's separate idempotency-then-append
+  shape internally (File has no Mnesia transaction to fold into, and File is a test-only
+  backend per `research.md`/`NFR-005` — `NFR-001` is measured against Mnesia specifically,
+  per `FT-035`'s own moduledoc). Both implementations satisfy the same external contract,
+  preserving `NFR-005`'s "switching requires zero changes outside the implementation module."
+- `LoanActor.Server`'s reactive path (`handle_clean_event`/`apply_event`) calls
+  `store.append_with_dedup/4` once per event instead of separately calling
+  `Idempotency.check_and_record/3`, `append_entry/4`, and `Idempotency.record_sequence/4`.
+  `State.transition/2` (pure, no I/O) still runs before the storage call, exactly as today,
+  to determine which entry type/payload the builder function writes on the fresh path.
+- `LoanActor.Idempotency`'s two-phase public API (`check_and_record/3` + `record_sequence/4`)
+  is retired in favor of transaction-scoped helper functions consumed only by
+  `Diary.Mnesia`'s new combined-transaction code path; the composite-key concept and
+  `{:duplicate, sequence}` semantics move with it, unchanged.
+- The existing race test proving exactly-one-`:fresh`-winner under concurrent duplicate
+  delivery (`FT-015`) is re-verified against the new single-transaction shape, not dropped.
+
+**Addendum 2 — Q1 implemented, load-tested, and DISPROVEN (2026-07-22, `/speckit-implement`
+FT-046/047/048).** The design above was built exactly as specified (`FT-046`: the
+`append_with_dedup/4` callback, Mnesia's combined transaction, File's unchanged two-call
+path; `FT-047`: `Server`'s reactive path wired onto it) and passed the full test suite,
+`credo --strict`, and `dialyzer` cleanly. **It was then reverted**, because `FT-048`'s
+re-run of `FT-035`'s load test (the literal acceptance gate this clarification names) showed
+it is a **regression**, not an improvement:
+
+- At reduced scale (20 loans / 10 events-sec / 15 s) — a profile the **unmodified pre-0005
+  code passes** (p95 95.33 ms) — the combined-transaction design measured p95 **300.03 ms**,
+  three times worse.
+- At full scale (100 loans / 10 events-sec / 60 s) it did not merely miss the budget the way
+  the pre-0005 code did (496.64 ms p95) — it caused outright `GenServer.call` timeouts
+  (5000 ms exceeded) under sustained concurrent load, a materially worse failure mode than
+  the gap this intent set out to close.
+- Root cause (best understanding, not exhaustively proven): the combined transaction reduces
+  transaction *count* by increasing transaction *duration/lock-hold-time* per event (it now
+  does an idempotency read, a `:mnesia.prev/2` tail scan, a diary write, and an idempotency
+  write, all before one commit, touching two tables instead of one). Under ~100-way
+  concurrent writers, Mnesia's optimistic concurrency control appears to pay for that with
+  more validation conflicts/retries than three separate, narrower single-table transactions
+  cost — i.e., **transaction count was the wrong thing to optimize**; lock contention under
+  concurrency, not per-transaction overhead, is the dominant cost at this profile. This was
+  verified by bisection against the unmodified pre-0005 code at matching scale (not just
+  "tests still pass") — see the `FT-046`/`FT-047` commits' own revert commits for the full
+  before/after numbers.
+- This does **not** invalidate Q2/Q3/Q4 (never tried) or the diagnosis that
+  `LoanActor.Idempotency`'s two-phase design and `FT-035`'s own root-cause analysis correctly
+  identified *a* hot-path cost — it invalidates *this specific mitigation* (collapsing across
+  tables into one transaction) as the fix.
+- **Status: NFR-001 remains unmet.** `FT-046`/`FT-047` were reverted (see revert commits);
+  the reactive pipeline is back to the pre-0005 three-transaction shape. Intent 0005 stays
+  `Specified`, not `Implemented` — its stated Outcome was not achieved. A follow-up amendment
+  should evaluate Q3 (batching) or Q4 (Mnesia tuning) on their own — NOT combined with
+  cross-table transaction merging — or investigate whether `:mnesia.prev/2`'s tail-scan
+  itself (used identically by the pre-0005 diary-append transaction) is the deeper bottleneck
+  independent of idempotency entirely, e.g. via a dedicated tail-pointer table avoiding the
+  scan (a data-model change requiring its own amendment). Per this repo's own precedent
+  (`FT-035`'s "honestly reported gap, not worked around"), this is reported as-is rather than
+  declaring victory on a reverted change.
+
+**Addendum 3 (2026-07-23, intent 0001's closeout audit).** The 496.64ms measurement this whole
+intent is built on turned out to be specific to the local Windows development machine used for
+`FT-035`'s original measurement and every re-run through Addendum 2 above — not a property of
+the reactive pipeline's architecture. Three measurements of the identical unmodified (pre-0005,
+three-transaction) code, escalating in rigor:
+
+- Local Windows dev machine: 496.64ms p95 — fails (the number this whole intent responds to).
+- GitHub-hosted Linux CI runner (small, shared VM): 7.3ms p95 — passes, ~68x faster.
+- A Linux container (`hexpm/elixir:1.17.3-erlang-27.3.4.7-debian-bookworm` — byte-for-byte
+  matching this project's `.tool-versions` pin) run on the **same physical machine** as the
+  failing Windows measurement: 10.23ms p95 — passes, ~48x faster than Windows-native on
+  identical hardware.
+
+The third measurement is the one that settles it: same CPU, same disks, same Elixir/OTP patch
+version, only the operating system changed, and the result is still comfortably inside budget.
+A ~48x gap under a controlled same-hardware comparison is not measurement noise. Windows
+Defender's real-time monitoring was confirmed active on the machine with no exclusion configured
+for the repository path — consistent with, though not exhaustively proven as, AV-scanning
+overhead on Mnesia's `disc_copies` writes under sustained concurrent load being the dominant
+cost, rather than the transaction *count* this intent's whole Problem statement is built around.
+
+This does not change the FT-046/FT-047 revert decision (Addendum 2) — that was a valid
+same-machine relative comparison and stands regardless of the absolute numbers' inflation. It
+does mean the architectural work this intent proposes (Q1/Q3/Q4 above) is very likely
+unnecessary: NFR-001 appears to already hold on every real (Linux) environment tested, including
+one that is hardware-identical to the machine that first reported the gap. Intent 0005 moves to
+`Abandoned` (not `Implemented`) on this basis — see the intent file's own closing note for the
+full reasoning and what would need to be true to reopen it.
+
+---
+
 ## Summary of locked architectural decisions
 
 | Concern | Decision |
@@ -195,5 +474,6 @@ in what happens to it.
 | HITL mechanism | `request_operator_approval` tool (deferred ToolCallResult) + AG-UI `CustomEvent` + CopilotKit `useHumanInTheLoop` *(0004)* |
 | Agent functions | Tools (typed, registry-listed, effects-returning) + skill packs (`priv/skills/`, trigger = `description`) *(0004)* |
 | Tool invocation surface | Internal-only; no public invoke API *(0004, Q8)* |
+| Reactive pipeline storage shape | One combined Mnesia transaction per event (`append_with_dedup/4`), replacing the prior three-transaction (reserve / append / fill) shape *(0005, Q17)* |
 
 These decisions become inputs to `/speckit-plan`.

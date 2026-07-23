@@ -14,6 +14,11 @@ erl_crash.dump
 apps/loan_actor/priv/mnesia*/
 apps/loan_actor/priv/diary_files/*
 !apps/loan_actor/priv/diary_files/.gitkeep
+# config/dev.exs's mnesia_dir is cwd-relative — lands here instead of
+# under apps/loan_actor/priv/ when `mix run` is invoked from the umbrella
+# root rather than the app dir.
+/priv/mnesia_dev/
+MnesiaCore.*
 
 # Node / frontend
 apps/web/node_modules/
@@ -22,6 +27,7 @@ apps/web/.vite/
 apps/web/playwright-report/
 apps/web/test-results/
 apps/web/coverage/
+apps/web/*.tsbuildinfo
 
 # OS / editors
 .DS_Store

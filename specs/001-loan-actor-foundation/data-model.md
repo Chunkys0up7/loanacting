@@ -143,10 +143,16 @@ Foundation ships exactly one pack: `priv/skills/0001-demo-document-request/` (SK
 ```
 loan_state  set         disc_copies   {loan_id, state_struct_binary, version}
 loan_diary  ordered_set disc_copies   {{loan_id, sequence}, entry_struct_binary}
-loan_idem   set         disc_copies   {{loan_id, event_id, source}, received_at}
+loan_idem   set         disc_copies   {{loan_id, event_id, source}, {received_at, sequence}}
 ```
 
 Schema migrations are out of scope for foundation. A future intent will introduce migrations.
+
+**Reactive-path transaction shape *(0005)*.** The schema above is unchanged, but how the
+reactive pipeline writes to it is: `loan_diary` and `loan_idem` writes for a single inbound
+event are performed inside **one** Mnesia transaction (`DiaryStore.append_with_dedup/4`,
+`contracts/diary-store-behaviour.md`), not three separate transactions. See `clarifications.md`
+Q17 for the full rationale; this closes the gap `FT-035`'s load test found in `NFR-001`.
 
 ---
 

@@ -30,6 +30,15 @@ defmodule LoanActor.Factory do
 
   alias LoanActor.Diary.Chain
   alias LoanActor.Diary.Entry
+  alias LoanActor.Event
+  alias LoanActor.Goal
+  alias LoanActor.HITLRequest
+  alias LoanActor.HITLResponse
+  alias LoanActor.Skill
+  alias LoanActor.State
+  alias LoanActor.State.Model
+  alias LoanActor.Tool.Context, as: ToolContext
+  alias LoanActor.Tool.Spec, as: ToolSpec
 
   @default_timestamp ~U[2026-07-21 00:00:00Z]
 
@@ -46,6 +55,22 @@ defmodule LoanActor.Factory do
   @spec unique_loan_id() :: String.t()
   def unique_loan_id do
     "L-#{run_token()}-#{System.unique_integer([:positive, :monotonic])}"
+  end
+
+  @doc """
+  A path under `System.tmp_dir!/0` unique WITHIN and ACROSS test runs —
+  same run-token rationale as `unique_loan_id/0`, generalized: any test
+  writing to the real filesystem (not a store this project tracks its own
+  dir for) needs this, or a stale directory from an earlier `mix test`
+  invocation can collide with a "fresh" one (`System.tmp_dir!()` is never
+  cleaned between runs; a bare `System.unique_integer/1` resets to low
+  numbers every fresh BEAM VM and can reproduce an earlier run's exact
+  name). Found the hard way: `test/skill/loader_test.exs`'s reload test
+  flaked intermittently before switching to this helper.
+  """
+  @spec unique_tmp_dir(String.t()) :: String.t()
+  def unique_tmp_dir(prefix) do
+    Path.join(System.tmp_dir!(), "#{prefix}_#{run_token()}_#{System.unique_integer([:positive, :monotonic])}")
   end
 
   defp run_token do
@@ -168,6 +193,561 @@ defmodule LoanActor.Factory do
       {:prev_hash_short, entry_attrs() |> Map.put(:prev_hash, <<0::size(16)-unit(8)>>)},
       {:payload_ref_not_binary, entry_attrs() |> Map.put(:payload_ref, 123)}
     ]
+  end
+
+  # ---- Goal + State factories (FT-010) ----
+  #
+  # Discovery checklist: schema source of truth is data-model.md `%Goal{}` /
+  # `%LoanActor.State{}` tables. Scenario classes: happy (goal_attrs/state_attrs
+  # defaults), boundary (state_at/1 exercises every status enum value; goals
+  # list empty vs populated), invalid (invalid_goal_variants /
+  # invalid_state_variants -- one per validator rule). Deterministic: no
+  # randomness; ids come from the shared unique_loan_id/monotonic-counter
+  # mechanism already used by the diary factories.
+
+  @doc "Valid attribute map for `LoanActor.Goal.new/1`."
+  @spec goal_attrs(map() | keyword()) :: map()
+  def goal_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        goal_id: "G-#{System.unique_integer([:positive, :monotonic])}",
+        description: "Obtain income documentation",
+        status: :open,
+        due_at: nil
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%Goal{}` from `goal_attrs/1`."
+  @spec goal(map() | keyword()) :: Goal.t()
+  def goal(overrides \\ %{}), do: Goal.new(goal_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `Goal.new/1` inputs, one per violated field invariant.
+  Each element is `{label, attrs}`; every `attrs` raises `ArgumentError`.
+  """
+  @spec invalid_goal_variants() :: [{atom(), map()}]
+  def invalid_goal_variants do
+    [
+      {:goal_id_empty, goal_attrs(%{goal_id: ""})},
+      {:goal_id_not_binary, goal_attrs() |> Map.put(:goal_id, 1)},
+      {:description_empty, goal_attrs(%{description: ""})},
+      {:status_invalid, goal_attrs() |> Map.put(:status, :bogus)},
+      {:due_at_not_datetime, goal_attrs() |> Map.put(:due_at, "2026-01-01")}
+    ]
+  end
+
+  @doc "Valid attribute map for `LoanActor.State.new/1` — a fresh `:spawned` loan."
+  @spec state_attrs(map() | keyword()) :: map()
+  def state_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        loan_id: unique_loan_id(),
+        status: :spawned,
+        goals: [],
+        context: %{},
+        version: 0,
+        last_heartbeat_at: nil
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.State{}` from `state_attrs/1`."
+  @spec state(map() | keyword()) :: State.t()
+  def state(overrides \\ %{}), do: State.new(state_attrs(overrides))
+
+  @doc """
+  A valid state already at `status` — used to exercise every status enum
+  value (boundary coverage, FT-010) and to build the "from" side of a
+  transition test (FT-011).
+  """
+  @spec state_at(State.status(), map() | keyword()) :: State.t()
+  def state_at(status, overrides \\ %{}) do
+    state(Map.merge(%{status: status}, Map.new(overrides)))
+  end
+
+  @doc """
+  Catalog of invalid `State.new/1` inputs, one per violated field invariant.
+  """
+  @spec invalid_state_variants() :: [{atom(), map()}]
+  def invalid_state_variants do
+    [
+      {:loan_id_empty, state_attrs(%{loan_id: ""})},
+      {:status_invalid, state_attrs() |> Map.put(:status, :bogus)},
+      {:goals_not_list, state_attrs() |> Map.put(:goals, "nope")},
+      {:goals_wrong_element, state_attrs() |> Map.put(:goals, [%{}])},
+      {:context_not_map, state_attrs() |> Map.put(:context, [])},
+      {:version_negative, state_attrs() |> Map.put(:version, -1)},
+      {:last_heartbeat_at_not_datetime, state_attrs() |> Map.put(:last_heartbeat_at, "now")}
+    ]
+  end
+
+  # ---- Event factories (FT-013) ----
+  #
+  # Discovery checklist: schema source of truth is data-model.md `%Event{}` +
+  # its source/type enums. Scenario classes: happy (event_attrs/event
+  # defaults), boundary (minimal event_id, empty payload map -- both still
+  # valid; every source/type enum value), invalid
+  # (invalid_event_variants/0 -- one per validate/1 rule, each collapsing to
+  # the documented {:error, :invalid_event} shape). Deterministic: fixed
+  # timestamp (default_timestamp/0, already used by the diary factories).
+
+  @doc "Valid attribute map for building a `%LoanActor.Event{}` — source defaults to :test."
+  @spec event_attrs(map() | keyword()) :: map()
+  def event_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        event_id: "EVT-#{System.unique_integer([:positive, :monotonic])}",
+        source: :test,
+        type: :document_uploaded,
+        payload: %{},
+        created_at: default_timestamp(),
+        received_at: default_timestamp()
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build an `%Event{}` from `event_attrs/1` (not validated — pair with `Event.validate/1`)."
+  @spec event(map() | keyword()) :: Event.t()
+  def event(overrides \\ %{}), do: struct!(Event, event_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `%Event{}` attribute maps, one per `validate/1` rule.
+  Each element is `{label, attrs}`; `Event.validate(struct!(Event, attrs))`
+  returns `{:error, :invalid_event}` for every one.
+  """
+  @spec invalid_event_variants() :: [{atom(), map()}]
+  def invalid_event_variants do
+    [
+      {:event_id_nil, event_attrs() |> Map.put(:event_id, nil)},
+      {:event_id_empty, event_attrs(%{event_id: ""})},
+      {:event_id_not_binary, event_attrs() |> Map.put(:event_id, 42)},
+      {:source_nil, event_attrs() |> Map.put(:source, nil)},
+      {:source_invalid, event_attrs() |> Map.put(:source, :borrower)},
+      {:type_nil, event_attrs() |> Map.put(:type, nil)},
+      {:type_invalid, event_attrs() |> Map.put(:type, :not_a_real_event)},
+      {:payload_nil, event_attrs() |> Map.put(:payload, nil)},
+      {:payload_not_map, event_attrs() |> Map.put(:payload, "not a map")},
+      {:created_at_nil, event_attrs() |> Map.put(:created_at, nil)},
+      {:created_at_not_datetime, event_attrs() |> Map.put(:created_at, "2026-01-01")},
+      {:received_at_nil, event_attrs() |> Map.put(:received_at, nil)},
+      {:received_at_not_datetime, event_attrs() |> Map.put(:received_at, "2026-01-01")}
+    ]
+  end
+
+  # ---- HITL request/response factories (FT-023 map form; FT-028 real structs) ----
+  #
+  # Discovery checklist: schema source of truth is data-model.md's
+  # %LoanActor.HITLRequest{}/%LoanActor.HITLResponse{} tables. Scenario
+  # classes: happy (attrs/struct defaults), invalid
+  # (invalid_hitl_request_variants/invalid_hitl_response_variants — one
+  # per validator rule). Deterministic: fixed timestamp, unique ids from
+  # the shared monotonic-counter mechanism.
+
+  @doc """
+  Plain map matching data-model.md's `%HITLRequest{}` fields
+  (`request_id`, `loan_id`, `prompt`, `options`, `created_at`) — used by
+  `AGUI.Encoder.hitl_request_event/2`, which accepts a plain map rather
+  than depending on `LoanActor.HITLRequest` (FT-023's own scope note).
+  """
+  @spec hitl_request_attrs(map() | keyword()) :: map()
+  def hitl_request_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        request_id: "HITL-#{System.unique_integer([:positive, :monotonic])}",
+        loan_id: unique_loan_id(),
+        prompt: "Approve the ambiguous document?",
+        options: ["approve", "reject"],
+        created_at: default_timestamp()
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.HITLRequest{}` from `hitl_request_attrs/1`."
+  @spec hitl_request(map() | keyword()) :: HITLRequest.t()
+  def hitl_request(overrides \\ %{}), do: HITLRequest.new(hitl_request_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `HITLRequest.new/1` inputs, one per violated field
+  invariant. Each element is `{label, attrs}`; every `attrs` raises `ArgumentError`.
+  """
+  @spec invalid_hitl_request_variants() :: [{atom(), map()}]
+  def invalid_hitl_request_variants do
+    [
+      {:request_id_empty, hitl_request_attrs(%{request_id: ""})},
+      {:loan_id_empty, hitl_request_attrs(%{loan_id: ""})},
+      {:prompt_empty, hitl_request_attrs(%{prompt: ""})},
+      {:options_empty, hitl_request_attrs() |> Map.put(:options, [])},
+      {:options_not_list, hitl_request_attrs() |> Map.put(:options, "approve")},
+      {:options_bad_element, hitl_request_attrs() |> Map.put(:options, ["approve", ""])},
+      {:created_at_not_datetime, hitl_request_attrs() |> Map.put(:created_at, "2026-01-01")}
+    ]
+  end
+
+  @doc "Valid attribute map for `LoanActor.HITLResponse.new/1`."
+  @spec hitl_response_attrs(map() | keyword()) :: map()
+  def hitl_response_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        request_id: "HITL-#{System.unique_integer([:positive, :monotonic])}",
+        decision: "approve",
+        comment: nil,
+        operator_id: "operator-1",
+        responded_at: default_timestamp()
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%LoanActor.HITLResponse{}` from `hitl_response_attrs/1`."
+  @spec hitl_response(map() | keyword()) :: HITLResponse.t()
+  def hitl_response(overrides \\ %{}), do: HITLResponse.new(hitl_response_attrs(overrides))
+
+  @doc """
+  Catalog of invalid `HITLResponse.new/1` inputs, one per violated field
+  invariant. Each element is `{label, attrs}`; every `attrs` raises `ArgumentError`.
+  """
+  @spec invalid_hitl_response_variants() :: [{atom(), map()}]
+  def invalid_hitl_response_variants do
+    [
+      {:request_id_empty, hitl_response_attrs(%{request_id: ""})},
+      {:decision_empty, hitl_response_attrs(%{decision: ""})},
+      {:comment_not_binary, hitl_response_attrs() |> Map.put(:comment, 42)},
+      {:operator_id_empty, hitl_response_attrs(%{operator_id: ""})},
+      {:responded_at_not_datetime, hitl_response_attrs() |> Map.put(:responded_at, "2026-01-01")}
+    ]
+  end
+
+  # ---- Tool factories (FT-041; extended by FT-037) ----
+  #
+  # Discovery checklist: schema source of truth is contracts/tool-behaviour.md
+  # (JSON-schema SUBSET: type/properties/required/enum, string keys). Scenario
+  # classes: happy (tool_spec_attrs defaults + valid_tool_args), invalid
+  # (invalid_tool_args_variants — one per validator rule; invalid_tool_schema_variants
+  # — one per cap violation). Deterministic throughout; no randomness.
+
+  @doc """
+  Valid attribute map for `LoanActor.Tool.Spec.new/1`. Defaults describe a
+  demo `request_document` tool exercising every allowed schema keyword
+  (object/properties/required/enum + string/integer/boolean/array leaves).
+  """
+  @spec tool_spec_attrs(map() | keyword()) :: map()
+  def tool_spec_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        name: "request_document",
+        description: "Request a document from the operator.",
+        parameters: %{
+          "type" => "object",
+          "properties" => %{
+            "doc_type" => %{"type" => "string", "enum" => ["income", "identity", "appraisal"]},
+            "priority" => %{"type" => "integer"},
+            "blocking" => %{"type" => "boolean"},
+            "tags" => %{"type" => "array"},
+            "meta" => %{
+              "type" => "object",
+              "properties" => %{"note" => %{"type" => "string"}},
+              "required" => ["note"]
+            }
+          },
+          "required" => ["doc_type"]
+        }
+      },
+      Map.new(overrides)
+    )
+  end
+
+  @doc "Build a validated `%Tool.Spec{}` from `tool_spec_attrs/1`."
+  @spec tool_spec(map() | keyword()) :: ToolSpec.t()
+  def tool_spec(overrides \\ %{}), do: ToolSpec.new(tool_spec_attrs(overrides))
+
+  @doc "Args satisfying the default `tool_spec/1` schema (minimal + full variants)."
+  @spec valid_tool_args(:minimal | :full) :: map()
+  def valid_tool_args(:minimal), do: %{"doc_type" => "income"}
+
+  def valid_tool_args(:full) do
+    %{
+      "doc_type" => "identity",
+      "priority" => 2,
+      "blocking" => true,
+      "tags" => ["kyc", "urgent"],
+      "meta" => %{"note" => "second request"}
+    }
+  end
+
+  @doc """
+  Catalog of invalid args against the default `tool_spec/1` schema — one per
+  validator rule. Each element is `{label, args, expected_error_path}`.
+  """
+  @spec invalid_tool_args_variants() :: [{atom(), map(), [String.t()]}]
+  def invalid_tool_args_variants do
+    [
+      {:missing_required, %{"priority" => 1}, ["doc_type"]},
+      {:wrong_type_string, %{"doc_type" => 42}, ["doc_type"]},
+      {:not_in_enum, %{"doc_type" => "selfie"}, ["doc_type"]},
+      {:wrong_type_integer, valid_tool_args(:minimal) |> Map.put("priority", "high"), ["priority"]},
+      {:wrong_type_boolean, valid_tool_args(:minimal) |> Map.put("blocking", "yes"), ["blocking"]},
+      {:wrong_type_array, valid_tool_args(:minimal) |> Map.put("tags", "kyc"), ["tags"]},
+      {:nested_missing_required, valid_tool_args(:minimal) |> Map.put("meta", %{}), ["meta", "note"]},
+      {:nested_wrong_type, valid_tool_args(:minimal) |> Map.put("meta", %{"note" => 1}), ["meta", "note"]}
+    ]
+  end
+
+  @doc """
+  Valid `%Tool.Context{}` for tool tests: planning loop, unique loan and
+  invocation ids, empty state (State struct lands in FT-010).
+  """
+  @spec tool_context(map() | keyword()) :: ToolContext.t()
+  def tool_context(overrides \\ %{}) do
+    %{
+      loan_id: unique_loan_id(),
+      state: %{},
+      loop: :planning,
+      actor: "system",
+      invocation_id: "inv-#{System.unique_integer([:positive, :monotonic])}"
+    }
+    |> Map.merge(Map.new(overrides))
+    |> ToolContext.new()
+  end
+
+  @doc """
+  Catalog of schema maps violating the FT-041 hard cap — `Tool.Spec.new/1`
+  raises for each. `{label, parameters}`.
+  """
+  @spec invalid_tool_schema_variants() :: [{atom(), term()}]
+  def invalid_tool_schema_variants do
+    [
+      {:forbidden_keyword, %{"type" => "object", "additionalProperties" => false}},
+      {:forbidden_format, %{"type" => "string", "format" => "uuid"}},
+      {:unknown_type, %{"type" => "number"}},
+      {:bad_required, %{"type" => "object", "required" => [:doc_type]}},
+      {:empty_enum, %{"type" => "string", "enum" => []}},
+      {:nested_violation, %{"type" => "object", "properties" => %{"x" => %{"minLength" => 3}}}},
+      {:not_a_map, "string schema"}
+    ]
+  end
+
+  @doc """
+  Valid attribute map for building a `%LoanActor.Skill{}` directly (no
+  `LoanActor.Skill.Loader` parsing round-trip). Defaults name a tool
+  (`verify_diary_chain`) that is always present in the real
+  `Tool.Registry`, so `write_skill_pack!/2`'s on-disk form of these same
+  attrs is loader-valid out of the box.
+  """
+  @spec skill_attrs(map() | keyword()) :: map()
+  def skill_attrs(overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    id = Map.get(overrides, :id, "0099-factory-skill")
+
+    Map.merge(
+      %{
+        id: id,
+        name: "factory-skill",
+        version: "1.0.0",
+        description: "A factory-built skill pack for testing.",
+        tools_required: ["verify_diary_chain"],
+        body: "Body.",
+        files: [],
+        path: Path.join("priv/skills", id)
+      },
+      overrides
+    )
+  end
+
+  @doc "Build a `%LoanActor.Skill{}` directly from `skill_attrs/1` — never loader-validated (see `write_skill_pack!/2` for that)."
+  @spec skill(map() | keyword()) :: Skill.t()
+  def skill(overrides \\ %{}), do: struct!(Skill, skill_attrs(overrides))
+
+  @doc """
+  Write a real `SKILL.md` pack under `dir` (creating the pack's own
+  subdirectory as needed), in the restricted front-matter grammar
+  `LoanActor.Skill.Loader` parses — for tests that need `Loader.load_pack/1`
+  or `load_all/1` to see a genuine on-disk pack rather than a `%Skill{}`
+  built in memory. `overrides` feeds `skill_attrs/1` (`:id` names the pack
+  subdirectory; `:name`/`:version`/`:description`/`:tools_required`/`:body`
+  become the front-matter + body). Returns `dir` itself (not the pack
+  subdirectory), ready to hand straight to `Application.put_env(:loan_actor,
+  :skills_dir, dir)` or `Loader.load_all(dir: dir)`.
+  """
+  @spec write_skill_pack!(Path.t(), map() | keyword()) :: Path.t()
+  def write_skill_pack!(dir, overrides \\ %{}) do
+    attrs = skill_attrs(overrides)
+    pack_dir = Path.join(dir, attrs.id)
+    File.mkdir_p!(pack_dir)
+
+    File.write!(Path.join(pack_dir, "SKILL.md"), """
+    ---
+    name: #{attrs.name}
+    version: #{attrs.version}
+    description: #{attrs.description}
+    tools_required: [#{Enum.join(attrs.tools_required, ", ")}]
+    ---
+
+    #{attrs.body}
+    """)
+
+    dir
+  end
+
+  @doc """
+  A realistic linked `{tool_invoked_entry, tool_completed_or_failed_entry}`
+  pair, continuing from `tail` (or the genesis entry when `tail` is
+  `nil`) — mirrors exactly what `LoanActor.Server`'s `invoke_tool/4` +
+  `append_tool_result_entry/3` write to the diary per real tool
+  invocation (`payload_hash` computed from the same `{"tool",
+  "invocation_id", ...}` payload shape, JSON-encoded then hashed).
+  `overrides` may set `:tool_name` (default `"verify_diary_chain"`),
+  `:outcome` (`:completed` | `:failed`, default `:completed`), and
+  `:loan_id` (only meaningful when `tail` is `nil`).
+  """
+  @spec tool_invocation_diary_pair(Entry.t() | nil, map() | keyword()) :: {Entry.t(), Entry.t()}
+  def tool_invocation_diary_pair(tail, overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    tool_name = Map.get(overrides, :tool_name, "verify_diary_chain")
+    outcome = Map.get(overrides, :outcome, :completed)
+    invocation_id = "inv-#{System.unique_integer([:positive, :monotonic])}"
+
+    invoked_payload = %{"tool" => tool_name, "invocation_id" => invocation_id, "args_hash" => "AA=="}
+
+    invoked =
+      next_entry(
+        tail,
+        overrides
+        |> Map.take([:loan_id])
+        |> Map.merge(%{type: :tool_invoked, payload_hash: Chain.hash(Jason.encode!(invoked_payload))})
+      )
+
+    {result_type, result_payload} =
+      case outcome do
+        :completed ->
+          {:tool_completed, %{"tool" => tool_name, "invocation_id" => invocation_id, "result_hash" => "BB=="}}
+
+        :failed ->
+          {:tool_failed, %{"tool" => tool_name, "invocation_id" => invocation_id, "reason" => "simulated_failure"}}
+      end
+
+    completed =
+      next_entry(invoked, %{type: result_type, payload_hash: Chain.hash(Jason.encode!(result_payload))})
+
+    {invoked, completed}
+  end
+
+  # ---- PII corpus generators (FT-014) ----
+  #
+  # Discovery checklist: schema source of truth is priv/pii_patterns.yml's
+  # four categories (ssn, account_number, routing_number, date_of_birth).
+  # Scenario classes: happy/clean (letters + spaces only -- provably cannot
+  # match any digit/date-shaped pattern), adversarial/dirty (one generator
+  # per category, each guaranteed to match). Feeds the 200-run synthetic
+  # corpus property test (test-data-forge: a generative corpus, not 200
+  # hand-rolled fixtures).
+
+  @doc "A string value guaranteed to never match any configured PII pattern (letters + spaces only)."
+  @spec pii_clean_value_gen() :: StreamData.t(String.t())
+  def pii_clean_value_gen do
+    StreamData.string(?a..?z, min_length: 1, max_length: 8)
+    |> StreamData.list_of(min_length: 1, max_length: 4)
+    |> StreamData.map(&Enum.join(&1, " "))
+  end
+
+  @doc "A string value guaranteed to match one of the four configured PII pattern categories."
+  @spec pii_dirty_value_gen() :: StreamData.t(String.t())
+  def pii_dirty_value_gen do
+    StreamData.one_of([
+      pii_ssn_gen(),
+      pii_account_number_gen(),
+      pii_routing_number_gen(),
+      pii_date_of_birth_gen()
+    ])
+  end
+
+  defp pii_digits(n), do: StreamData.string(?0..?9, length: n)
+
+  defp pii_ssn_gen do
+    StreamData.tuple({pii_digits(3), pii_digits(2), pii_digits(4)})
+    |> StreamData.map(fn {a, b, c} -> "SSN: #{a}-#{b}-#{c}" end)
+  end
+
+  defp pii_account_number_gen do
+    StreamData.integer(8..17)
+    |> StreamData.bind(&pii_digits/1)
+    |> StreamData.map(fn digits -> "account #{digits} on file" end)
+  end
+
+  defp pii_routing_number_gen do
+    pii_digits(9) |> StreamData.map(fn digits -> "routing #{digits}" end)
+  end
+
+  defp pii_date_of_birth_gen do
+    StreamData.tuple({
+      StreamData.integer(1900..2019),
+      StreamData.integer(1..12),
+      StreamData.integer(1..28)
+    })
+    |> StreamData.map(fn {y, m, d} -> "born #{y}-#{pii_pad(m)}-#{pii_pad(d)}" end)
+  end
+
+  defp pii_pad(n), do: n |> Integer.to_string() |> String.pad_leading(2, "0")
+
+  # ---- Replay factories (FT-009) ----
+  #
+  # Discovery checklist: builds diary chains whose entry types follow a
+  # given event-type sequence, for tests that fold State.transition/2 over
+  # a diary and must reproduce the sequence that produced it. Scenario
+  # classes: happy (a full-coverage fixed walk, see replay_test.exs),
+  # property (legal_event_walk_gen/2 -- every generated walk is, by
+  # construction, a valid path through LoanActor.State.Model's graph).
+
+  @doc """
+  A valid diary chain for one loan: genesis entry typed `:spawned`,
+  followed by one entry per `event_type` in `event_types` (in order).
+  """
+  @spec chain_with_event_types([atom()], map() | keyword()) :: [Entry.t()]
+  def chain_with_event_types(event_types, overrides \\ %{}) do
+    overrides = Map.new(overrides)
+    loan_id = Map.get(overrides, :loan_id, unique_loan_id())
+    genesis = entry(Map.merge(overrides, %{loan_id: loan_id, type: :spawned}))
+
+    {chain, _tail} =
+      Enum.reduce(event_types, {[genesis], genesis}, fn event_type, {acc, tail} ->
+        next = next_entry(tail, %{type: event_type})
+        {[next | acc], next}
+      end)
+
+    Enum.reverse(chain)
+  end
+
+  @doc """
+  StreamData generator producing a random LEGAL walk through
+  `LoanActor.State.Model`'s graph, starting at `:spawned`. Stops at a
+  terminal status (no next events, e.g. `:completed`) or after `max_steps`
+  transitions, whichever comes first. Built from proper `StreamData.bind`
+  combinators (not raw `:rand`), so it participates in the seeded,
+  shrinkable random stream like every other generator here.
+  """
+  @spec legal_event_walk_gen(atom(), pos_integer()) :: StreamData.t([atom()])
+  def legal_event_walk_gen(status \\ :spawned, max_steps \\ 10)
+
+  def legal_event_walk_gen(_status, 0), do: StreamData.constant([])
+
+  def legal_event_walk_gen(status, max_steps) do
+    case Model.next_events_for(status) do
+      [] ->
+        StreamData.constant([])
+
+      events ->
+        StreamData.bind(StreamData.member_of(events), fn event ->
+          {:ok, next_status} = Model.next_status(status, event)
+
+          StreamData.bind(legal_event_walk_gen(next_status, max_steps - 1), fn rest ->
+            StreamData.constant([event | rest])
+          end)
+        end)
+    end
   end
 
   # ---- StreamData generators (opt-in randomness for property tests) ----

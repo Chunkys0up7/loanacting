@@ -23,8 +23,50 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 | FT-007 | DONE | `FT-007` commit |
 | FT-008 | DONE | `FT-008` commit |
 | FT-018b | SUPERSEDED | by FT-044 (intent 0004) |
+| FT-041 | DONE | `FT-041` commit |
+| FT-042 | DONE | `FT-042` commit |
+| FT-010 | DONE | `FT-010` commit |
+| FT-011 | DONE | `FT-011` commit |
+| FT-012 | DONE | `FT-012` commit |
+| FT-013 | DONE | `FT-013` commit |
+| FT-014 | DONE | `FT-014` commit |
+| FT-015 | DONE | `FT-015` commit |
+| FT-009 | DONE | `FT-009` commit |
+| FT-016 | DONE | `FT-016` commit |
+| FT-017 | DONE | `FT-017` commit |
+| FT-043 | DONE | `FT-043` commit |
+| FT-044 | DONE | `FT-044` commit |
+| FT-018 | DONE | `FT-018` commit |
+| FT-020 | DONE | `FT-020` commit |
+| FT-021 | DONE | this commit |
+| FT-022 | DONE | `FT-021/FT-022` commit |
+| FT-023 | DONE | `FT-023` commit |
+| FT-019 | DONE | `FT-019` commit |
+| FT-024 | DONE | `FT-024` commit |
+| FT-025 | DONE | `FT-025` commit |
+| FT-026 | DONE | `FT-026/FT-027` commit |
+| FT-027 | DONE | `FT-026/FT-027` commit (HITL route added retroactively by FT-028) |
+| FT-028 | DONE | `FT-028` commit |
+| FT-034 | DONE | `FT-034` commit |
+| FT-035 | DONE (SC-001 gap found and documented — see commit) | this commit |
+| FT-046 | REVERTED (regression — see `clarifications.md` Q17 Addendum 2) | implemented `4e688f6`, reverted `cca65b0` |
+| FT-047 | REVERTED (depended on FT-046) | implemented `480226d`, reverted `9fdf498` |
+| FT-048 | DONE — gap NOT closed (NFR-001 still fails; regression found instead) | `FT-048` commit |
+| FT-029 | DONE | `107e4bc` |
+| FT-030 | DONE | `130407c` |
+| FT-031 | DONE | `130407c` |
+| FT-032 | DONE | `e61f339` (+ `9eddc19` inspector fix) |
+| FT-045 | DONE | `d6f51ae` |
+| FT-033 | DONE | `95b6fa0` |
+| FT-036 | DONE (switched File → Mnesia after measuring — see commit) | `c2e7c11` |
+| FT-037 | DONE | `c1d259a` |
+| FT-038 | DONE | `1b661a4` |
+| FT-039 | DONE | `74dae83` |
+| FT-040 | DONE | this commit |
 
 *(Task list amended 2026-07-21 by intent 0004: FT-041..FT-045 added; FT-017/018/019/023/028/030/031/032/034/035/037/038 deltas; FT-019 dep corrected FT-024 → FT-023.)*
+
+*(Task list amended 2026-07-22 by intent 0005: FT-046..FT-048 added (Track 15, reactive pipeline throughput). FT-046/FT-047 were implemented, then REVERTED after FT-048's load-test re-run showed the fix is a regression, not an improvement — see `clarifications.md` Q17 Addendum 2 for the full evidence. NFR-001 remains unmet; intent 0005 stays `Specified`, not `Implemented`.)*
 
 ---
 
@@ -335,7 +377,29 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 ---
 
-## Dependency graph (high-level, as amended by 0004)
+## Track 15 — Reactive pipeline throughput *(added by intent 0005; FT-046/FT-047 REVERTED after load-test evidence — see `clarifications.md` Q17 Addendum 2. Task descriptions below are left as-authored to document what was attempted and why; they do not describe the current state of the code.)*
+
+### FT-046 — `DiaryStore.append_with_dedup/4` — behaviour + both implementations
+- Deliverable: `contracts/diary-store-behaviour.md` amended (new callback, done as part of this spec commit); `lib/loan_actor/diary/store.ex` gains the `@callback`; `lib/loan_actor/diary/mnesia.ex` implements it as a dirty-read peek + one combined `:mnesia.transaction/1` (dedup-check + tail-read + chain-verify + diary write + idem write); `lib/loan_actor/diary/file.ex` implements it by delegating to the pre-0005 separate-calls shape (idempotency is always Mnesia-backed regardless of diary backend).
+- Tests: extend `test/support/diary_store_shared.ex` (parameterized, both implementations) with: fresh-then-duplicate; concurrent-duplicate-delivery race (exactly one `:fresh` winner — this test **replaces** `test/idempotency_test.exs`'s existing FT-015 race test outright, it does not run alongside it); duplicate-produces-zero-diary-writes; forced-abort-mid-transaction leaves zero trace in either table (proves atomicity — not a simulation of the old two-phase design's failure mode, which no longer exists); `entry_builder` called with `tail == nil` (genesis) as well as a real tail; chain-link rejection (bad `prev_hash`) still aborts through this path same as plain `append/2`. Optional: a Benchee microbenchmark (single loan, sequential events, no concurrency) comparing transaction count/latency against the pre-0005 shape, for fast iteration ahead of FT-048's full load test.
+- Taxonomy: happy / boundary / race / replay / error / contract.
+- Depends on: FT-006 (shared store suite), FT-007, FT-008, FT-015.
+
+### FT-047 — `LoanActor.Server` reactive path onto `append_with_dedup/4`; retire two-phase `Idempotency` API
+- Deliverable: `lib/loan_actor/server.ex`'s `handle_clean_event/3`/`apply_event/3` call `store.append_with_dedup/4` once per event (builder closure captures the already-computed `State.transition/2` result / `IllegalTransitionError` rescue path, unchanged); `lib/loan_actor/idempotency.ex`'s public `check_and_record/3` + `record_sequence/4` are retired in favor of transaction-scoped helpers consumed only from `Diary.Mnesia` (FT-046).
+- Tests: `test/server_reactive_test.exs` updated for the new call shape; `test/idempotency_test.exs` updated to unit-test the transaction-scoped helpers directly (narrow, not a race test — they only ever run inside an already-open transaction, so concurrency correctness is fully covered by FT-046's shared-suite race test, not re-tested here); FT-034's property-based replay suite re-run and must stay green with no changes required (diary entry shapes are unchanged; replay never touches `loan_idem`, so this is a non-regression gate, not coverage of the new logic).
+- Taxonomy: happy / replay / error / regression.
+- Depends on: FT-046, FT-017.
+
+### FT-048 — Re-run `FT-035` load test as the acceptance gate (SC-015)
+- Deliverable: `mix test.load` green at default `LOAN_LOAD_*` scale (100 loans, 10 events/sec/loan, 60 s) — p95 event-to-diary latency < 100 ms; `NFR-002`/`NFR-003`/`NFR-004` unregressed in the same run. `apps/loan_actor/test/load/nfr_load_test.exs`'s moduledoc updated to record the outcome (the "genuine gap" callout from the `FT-035` commit is corrected/closed, referencing intent 0005) — no new load-test file; this is the same test, re-run.
+- Tests: none new — the existing load test is the test.
+- Taxonomy: performance (treated as boundary, matching FT-035's own precedent).
+- Depends on: FT-047.
+
+---
+
+## Dependency graph (high-level, as amended by 0004, 0005)
 
 ```
 FT-001 ─► FT-002 ─► (most others)
@@ -347,6 +411,8 @@ FT-017 ─► FT-025, FT-027, FT-028
 FT-041 ─► FT-023 ─► FT-024 ─► FT-025
 FT-029 ─► FT-030 + FT-031 ─► FT-032 ─► FT-033, FT-045 ─► FT-038
 FT-017 + FT-027 + FT-032 ─► FT-040
+FT-006 + FT-007 + FT-008 + FT-015 ─► FT-046 ─► FT-047 ─► FT-048           ← 0005, after FT-017 exists
+FT-017 ─► FT-047
 ```
 
 ## Parallel batches the agent may attempt
@@ -356,6 +422,7 @@ FT-017 + FT-027 + FT-032 ─► FT-040
 - Batch B2 (after FT-041): FT-042 → FT-043 `[P]` FT-044 (FT-043's state-effecting tools also need FT-010/011/014).
 - Batch C (after FT-017 + FT-043 + FT-044): FT-018 `[P]` FT-019 `[P]` FT-025.
 - Batch D (after FT-023): FT-024 `[P]` FT-031.
+- Batch E (0005, after FT-017 + FT-046): FT-047 → FT-048. (Not parallelizable — each depends on the prior.)
 
 `/speckit-implement` selects batches respecting the graph.
 
@@ -370,14 +437,26 @@ FT-017 + FT-027 + FT-032 ─► FT-040
 | Replay | FT-007, FT-008, FT-009, FT-034 (incl. tool-entry replay), FT-036, FT-043. |
 | Security | FT-005, FT-014, FT-021, FT-022 (extended to `lib/loan_actor/tools/`), FT-026, FT-027, FT-043 (PII order-of-operations). |
 | Contract | FT-006, FT-023 (15 snapshots), FT-030, FT-038 (incl. ToolCall frames), FT-041, FT-042, FT-044. |
-| Performance | FT-035 (with tool ceremony on), FT-036. |
+| Performance | FT-035 (with tool ceremony on), FT-036, FT-048 (re-run; gap confirmed still open, see below). |
+
+*(FT-046/FT-047's taxonomy contributions were removed from this table when both were reverted
+— their code no longer exists in the tree. `FT-048` still counts: the load-test re-run
+happened and produced a real result, just not the one this intent wanted.)*
 
 Every applicable category has at least one task → SC-008 satisfied.
 
 ## Definition of done (foundation)
 
-- All FT-001..FT-045 PRs merged (FT-018b superseded by FT-044; intent 0004 tasks are part of this spec).
+- All FT-001..FT-045 PRs merged (FT-018b superseded by FT-044; intent 0004 tasks are part of
+  this spec). **`FT-046`/`FT-047` (intent 0005) were implemented then reverted — see
+  `clarifications.md` Q17 Addendum 2 — and are NOT part of the merged foundation.**
 - CI green on `main` for: `mix test`, `mix dialyzer`, `mix credo --strict`, `mix test.load`, `npm test`, Playwright e2e (including the contract test), and the smoke check.
 - Quickstart smoke checklist passes manually.
 - Constitution v1.0.0 still passes the matrix in `analysis.md`.
 - Intent 0001 status updated to `Implemented`.
+- **`NFR-001` does NOT yet hold at full `SC-001` scale.** Intent 0005's attempted fix
+  (`FT-046`/`FT-047`, collapsing the reactive pipeline's three Mnesia transactions into one)
+  was implemented, load-tested, and found to be a regression — see `clarifications.md` Q17
+  Addendum 2 for the measured evidence — and was reverted. This item stays unmet, honestly
+  reported rather than closed; a follow-up amendment is needed before intent 0005 can move to
+  `Implemented`.

@@ -16,6 +16,7 @@ defmodule LoanActor.MixProject do
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [
         "test.load": :test,
+        "test.slow": :test,
         "test.smoke": :test
       ]
     ]
@@ -23,16 +24,19 @@ defmodule LoanActor.MixProject do
 
   def application do
     [
-      # mod: {LoanActor.Application, []}, # restored in FT-016 when supervisor lands
+      mod: {LoanActor.Application, []},
       extra_applications: [:logger, :crypto, :mnesia]
     ]
   end
 
   # lib/credo is excluded: custom Credo checks are loaded by Credo itself via
   # .credo.exs `requires` and must not be compiled into the app (Credo is a
-  # dev/test-only dependency).
-  defp elixirc_paths(:test), do: ["lib/loan_actor", "lib/mix", "test/support"]
-  defp elixirc_paths(_), do: ["lib/loan_actor", "lib/mix"]
+  # dev/test-only dependency). lib/loan_actor.ex (FT-017's public API
+  # facade) is listed explicitly by file, since it's a sibling of
+  # lib/loan_actor/ rather than a descendant, and a bare "lib" entry would
+  # sweep in lib/credo too.
+  defp elixirc_paths(:test), do: ["lib/loan_actor.ex", "lib/loan_actor", "lib/mix", "test/support"]
+  defp elixirc_paths(_), do: ["lib/loan_actor.ex", "lib/loan_actor", "lib/mix"]
 
   defp deps do
     [
