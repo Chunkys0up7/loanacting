@@ -5,6 +5,12 @@
 # the default `mix test` run, and ci.yml's per-push/PR `backend` job never
 # runs it) since that's far too slow for the per-PR gate. This workflow
 # runs it once a day instead, plus on manual dispatch for on-demand checks.
+#
+# No hashFiles()-based guards here (or in ci.yml) — every function call of
+# hashFiles anywhere in this repo's workflow files made GitHub reject the
+# ENTIRE file at parse time ("Invalid workflow file ... Unrecognized
+# function: 'hashFiles'"), zero jobs ever scheduled, on every run since
+# ci.yml's introduction. See audit.md's CI-run deviation entry.
 name: ci-nightly
 
 on:
@@ -33,12 +39,11 @@ jobs:
           path: |
             deps
             _build
-          key: mix-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}
+          key: mix-${{ runner.os }}-v1
           restore-keys: mix-${{ runner.os }}-
 
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
 
       - name: Diary scale test (FT-036)
-        if: hashFiles('apps/loan_actor/test/load/large_diary_replay_test.exs') != ''
         run: mix test.slow

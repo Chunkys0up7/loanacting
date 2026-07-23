@@ -4,9 +4,13 @@
 #   backend  — mix test, mix credo --strict, mix dialyzer, mix test.smoke, mix test.load
 #   frontend — npm test (Vitest), Playwright e2e against a booted backend
 #
-# Steps whose subject tasks have not landed yet are guarded by hashFiles()
-# checks so CI stays green while the task graph fills in (no skipped-red,
-# no vacuous-green: once the files exist the step runs unconditionally).
+# Spec 001 is now fully implemented (FT-001..FT-040) — every step below runs
+# unconditionally. (Earlier revisions guarded steps whose subject tasks
+# hadn't landed yet with `hashFiles(...) != ''` checks; those guards were
+# ALSO discovered to be the reason every run on this repo failed outright
+# with zero jobs scheduled — "Invalid workflow file ... Unrecognized
+# function: 'hashFiles'" — not merely unnecessary now that every guarded
+# file exists. See audit.md's CI-run deviation entry for the full story.)
 name: ci
 
 on:
@@ -35,7 +39,7 @@ jobs:
           path: |
             deps
             _build
-          key: mix-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}
+          key: mix-${{ runner.os }}-v1
           restore-keys: mix-${{ runner.os }}-
 
       - run: mix deps.get
@@ -45,22 +49,13 @@ jobs:
       - run: mix dialyzer
 
       - name: Smoke test (quickstart.md's own checklist)
-        # FT-040 delivers test/smoke_test.exs; guard keeps CI honest until then.
-        # Already covered by the `mix test` run above (not excluded by
-        # default, unlike :load/:slow) — this step is a separately labeled,
-        # fast-to-spot gate mirroring quickstart.md's own numbered checklist.
-        if: hashFiles('apps/loan_actor/test/smoke_test.exs') != ''
         run: mix test.smoke
 
       - name: Load tests (NFR budgets)
-        # FT-035 delivers test/load/nfr_load_test.exs; guard keeps CI honest until then.
-        if: hashFiles('apps/loan_actor/test/load/*_test.exs') != ''
         run: mix test.load
 
   frontend:
-    # Guarded until FT-029 completes the web scaffold (package-lock.json).
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('apps/web/package-lock.json') != '' }}
     defaults:
       run:
         working-directory: apps/web
@@ -77,17 +72,11 @@ jobs:
 
       - run: npm run lint
       - run: npm run typecheck
-
-      - name: Unit tests (Vitest)
-        # FT-030 delivers the first Vitest suite.
-        if: hashFiles('apps/web/test/**/*.test.ts') != ''
-        run: npm test
+      - run: npm test
 
   e2e:
-    # Playwright against a booted backend — FT-032/FT-033/FT-038 deliver the specs.
     runs-on: ubuntu-latest
     needs: [backend, frontend]
-    if: ${{ hashFiles('apps/web/test/e2e/*.spec.ts') != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -109,7 +98,7 @@ jobs:
           path: |
             deps
             _build
-          key: mix-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}
+          key: mix-${{ runner.os }}-v1
           restore-keys: mix-${{ runner.os }}-
 
       - run: mix deps.get
