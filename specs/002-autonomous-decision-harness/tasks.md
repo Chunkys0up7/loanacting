@@ -23,7 +23,11 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
 
 | Task | Status | Commit |
 |---|---|---|
-| (none yet — this feature has not entered `/speckit-implement`) | | |
+| ADH-001 | Done (folded into ADH-002/ADH-004 — `config :loan_actor, :tools` gained `AssessLoan`/`EvaluateGate` directly as each module was built, not as a separate placeholder-first step) | `9c8d4a8`, `88ecbf7` |
+| ADH-002 | Done | `9c8d4a8` |
+| ADH-003 | Done | `f172e2a` |
+| ADH-004 | Done | `88ecbf7` |
+| ADH-005 | Done | (pending commit) |
 
 ---
 

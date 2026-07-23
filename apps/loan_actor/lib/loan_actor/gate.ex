@@ -199,6 +199,102 @@ defmodule LoanActor.Gate do
     ArgumentError -> :unresolvable
   end
 
+  # ---- nested front-matter block parsing (gate-pack-format.md's ONE
+  # exception to the flat "key: value" grammar) ----
+  #
+  # Hand-rolled, NOT a general YAML parser — same discipline as
+  # `LoanActor.PIIGuard`'s pattern file and `Skill.Loader`'s own flat
+  # grammar. Supports exactly what the predicate DSL needs: `key: value`,
+  # `key:` followed by a nested map or a `- `-prefixed list of maps, one
+  # level of list nesting. `LoanActor.Skill.Loader` calls this with the
+  # raw indented text immediately following a pack's `rule:` key; it does
+  # not otherwise know or care about this grammar.
+
+  @doc """
+  Parse the raw indented text following a gate pack's `rule:` key (i.e.,
+  everything before the next indent-0 front-matter key, or EOF) into the
+  nested map shape `Gate.new/1`'s `:rule` attribute expects. Returns
+  `{:ok, map}` or `{:error, reason}` — never raises, mirroring every
+  other loader-facing parse function in this codebase.
+  """
+  @spec parse_rule_block_text(String.t()) :: {:ok, map()} | {:error, term()}
+  def parse_rule_block_text(text) do
+    tagged =
+      text
+      |> String.split(~r/\r?\n/)
+      |> Enum.reject(&(String.trim(&1) == ""))
+      |> Enum.map(fn line ->
+        stripped = String.trim_leading(line)
+        {String.length(line) - String.length(stripped), String.trim_trailing(stripped)}
+      end)
+
+    case tagged do
+      [] ->
+        {:error, :empty_rule_block}
+
+      [{base_indent, _} | _] ->
+        {parsed, _remaining} = parse_map(tagged, base_indent)
+        {:ok, parsed}
+    end
+  rescue
+    e -> {:error, {:parse_error, Exception.message(e)}}
+  end
+
+  defp parse_map(lines, base_indent), do: parse_map(lines, base_indent, %{})
+
+  defp parse_map([{indent, content} | rest], base_indent, acc) when indent == base_indent do
+    [key, value_str] = String.split(content, ":", parts: 2)
+    key = String.trim(key)
+    value_str = String.trim(value_str)
+
+    {value, remaining} =
+      if value_str == "" do
+        parse_nested(rest, base_indent)
+      else
+        {parse_scalar(value_str), rest}
+      end
+
+    parse_map(remaining, base_indent, Map.put(acc, key, value))
+  end
+
+  defp parse_map(lines, _base_indent, acc), do: {acc, lines}
+
+  defp parse_nested([{indent, content} | _] = lines, base_indent) when indent > base_indent do
+    if String.starts_with?(content, "- ") do
+      parse_list(lines, indent)
+    else
+      parse_map(lines, indent)
+    end
+  end
+
+  defp parse_nested(lines, _base_indent), do: {%{}, lines}
+
+  defp parse_list(lines, indent), do: parse_list(lines, indent, [])
+
+  defp parse_list([{indent, "- " <> first_pair} | rest], indent, acc) do
+    item_indent = indent + 2
+    {item_map, remaining} = parse_map([{item_indent, first_pair} | rest], item_indent)
+    parse_list(remaining, indent, [item_map | acc])
+  end
+
+  defp parse_list(lines, _indent, acc), do: {Enum.reverse(acc), lines}
+
+  defp parse_scalar("true"), do: true
+  defp parse_scalar("false"), do: false
+
+  defp parse_scalar(v) do
+    case Integer.parse(v) do
+      {int, ""} ->
+        int
+
+      _ ->
+        case Float.parse(v) do
+          {float, ""} -> float
+          _ -> v
+        end
+    end
+  end
+
   # ---- parsing (hard cap enforcement) ----
 
   defp fetch_binary(attrs, key) do

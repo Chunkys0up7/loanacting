@@ -27,6 +27,8 @@ defmodule LoanActor.Skill.Loader do
 
   require Logger
 
+  alias LoanActor.Assessment
+  alias LoanActor.Gate
   alias LoanActor.Skill
   alias LoanActor.Tool.Registry
 
@@ -77,8 +79,9 @@ defmodule LoanActor.Skill.Loader do
          content <- File.read!(skill_md),
          {:ok, keys, body} <- parse(content),
          :ok <- validate_required(keys),
-         :ok <- validate_tools_required(keys["tools_required"]) do
-      {:ok, build_skill(pack_dir, keys, body)}
+         :ok <- validate_tools_required(keys["tools_required"]),
+         {:ok, gate} <- validate_gate(pack_dir, keys) do
+      {:ok, build_skill(pack_dir, keys, body, gate)}
     else
       {:exists, false} -> {:error, :missing_skill_md}
       {:error, _reason} = error -> error
@@ -87,7 +90,11 @@ defmodule LoanActor.Skill.Loader do
 
   @doc """
   Skills from `skills` whose trigger keyword-overlaps `loan_context`
-  (`%{status: atom, event_type: atom | nil, goal_descriptions: [String.t]}`).
+  (`%{status: atom, event_type: atom | nil, goal_descriptions: [String.t],
+  assessment: %LoanActor.Assessment{} | nil}`). The `assessment` key
+  (intent 0003, `research.md` R-5) enriches the match haystack so a gate
+  pack's `description` can meaningfully reference assessment-derived
+  concepts — the overlap algorithm itself is unchanged.
   """
   @spec match(map(), [Skill.t()]) :: [Skill.t()]
   def match(loan_context, skills) do
@@ -97,6 +104,30 @@ defmodule LoanActor.Skill.Loader do
       trigger = keywords(skill.description)
       not MapSet.disjoint?(haystack, trigger)
     end)
+  end
+
+  @doc """
+  Among `skills` currently declaring `gate_id`, the one with the highest
+  semver `version` — "current" per `contracts/gate-pack-format.md`
+  invariant 6 (two on-disk packs may legitimately share a `gate_id` across
+  versions; this is the deterministic tie-break, not an error). Returns
+  `nil` if no loaded skill declares that `gate_id`.
+  """
+  @spec resolve_gate(String.t(), [Skill.t()]) :: Gate.t() | nil
+  def resolve_gate(gate_id, skills) do
+    skills
+    |> Enum.filter(&(&1.gate != nil and &1.gate.gate_id == gate_id))
+    |> Enum.reduce(nil, fn skill, best ->
+      cond do
+        best == nil -> skill
+        Version.compare(skill.gate.version, best.gate.version) == :gt -> skill
+        true -> best
+      end
+    end)
+    |> case do
+      nil -> nil
+      skill -> skill.gate
+    end
   end
 
   # ---- pack discovery + construction ----
@@ -114,7 +145,7 @@ defmodule LoanActor.Skill.Loader do
     end
   end
 
-  defp build_skill(pack_dir, keys, body) do
+  defp build_skill(pack_dir, keys, body, gate) do
     %Skill{
       id: Path.basename(pack_dir),
       name: keys["name"],
@@ -123,7 +154,8 @@ defmodule LoanActor.Skill.Loader do
       tools_required: keys["tools_required"],
       body: body,
       files: reference_files(pack_dir),
-      path: pack_dir
+      path: pack_dir,
+      gate: gate
     }
   end
 
@@ -160,22 +192,79 @@ defmodule LoanActor.Skill.Loader do
 
   defp validate_tools_required(other), do: {:error, {:invalid_tools_required, other}}
 
+  # A gate pack (contracts/gate-pack-format.md) is any pack whose
+  # tools_required names evaluate_gate — such a pack additionally requires
+  # gate_id + rule, and rule must satisfy ADH-003's hard-capped grammar
+  # (Gate.new/1 owns that validation entirely; not duplicated here).
+  defp validate_gate(pack_dir, keys) do
+    if is_list(keys["tools_required"]) and "evaluate_gate" in keys["tools_required"] do
+      attrs = %{
+        gate_id: Map.get(keys, "gate_id"),
+        version: Map.get(keys, "version"),
+        pack_id: Path.basename(pack_dir),
+        rule: Map.get(keys, "rule")
+      }
+
+      case Gate.new(attrs) do
+        {:ok, gate} -> {:ok, gate}
+        {:error, reason} -> {:error, {:invalid_gate, reason}}
+      end
+    else
+      {:ok, nil}
+    end
+  end
+
   # ---- restricted front-matter grammar (NOT general YAML) ----
+  #
+  # `rule:` (gate-pack-format.md's ONE exception to flat key-value lines)
+  # is extracted and parsed separately, BEFORE the flat parser sees the
+  # front-matter — its indented continuation lines would otherwise be
+  # mis-parsed as bogus top-level keys.
 
   defp parse(content) do
     case String.split(content, ~r/^---[ \t]*\r?\n/m, parts: 3) do
-      [leading, front_matter, body] ->
-        if String.trim(leading) == "" do
-          {:ok, parse_keys(front_matter), String.trim_leading(body)}
-        else
-          {:error, :missing_front_matter_fence}
-        end
-
-      _ ->
-        {:error, :missing_front_matter_fence}
+      [leading, front_matter, body] -> parse_fenced(leading, front_matter, body)
+      _ -> {:error, :missing_front_matter_fence}
     end
   rescue
     e -> {:error, {:parse_error, Exception.message(e)}}
+  end
+
+  defp parse_fenced(leading, front_matter, body) do
+    if String.trim(leading) == "" do
+      {rest, rule_text} = extract_rule_block(front_matter)
+
+      with {:ok, keys} <- merge_rule(parse_keys(rest), rule_text) do
+        {:ok, keys, String.trim_leading(body)}
+      end
+    else
+      {:error, :missing_front_matter_fence}
+    end
+  end
+
+  defp extract_rule_block(front_matter) do
+    lines = String.split(front_matter, ~r/\r?\n/)
+
+    case Enum.split_while(lines, &(not rule_key_line?(&1))) do
+      {_before, []} ->
+        {front_matter, nil}
+
+      {before, [_rule_line | after_lines]} ->
+        {block_lines, remaining} = Enum.split_while(after_lines, &rule_block_line?/1)
+        {Enum.join(before ++ remaining, "\n"), Enum.join(block_lines, "\n")}
+    end
+  end
+
+  defp rule_key_line?(line), do: Regex.match?(~r/^rule:[ \t]*$/, line)
+  defp rule_block_line?(line), do: String.trim(line) == "" or Regex.match?(~r/^[ \t]/, line)
+
+  defp merge_rule(keys, nil), do: {:ok, keys}
+
+  defp merge_rule(keys, rule_text) do
+    case Gate.parse_rule_block_text(rule_text) do
+      {:ok, rule_map} -> {:ok, Map.put(keys, "rule", rule_map)}
+      {:error, reason} -> {:error, {:invalid_rule_block, reason}}
+    end
   end
 
   defp parse_keys(front_matter) do
@@ -209,9 +298,18 @@ defmodule LoanActor.Skill.Loader do
     [
       Map.get(loan_context, :status),
       Map.get(loan_context, :event_type),
-      Map.get(loan_context, :goal_descriptions, []) |> Enum.join(" ")
+      Map.get(loan_context, :goal_descriptions, []) |> Enum.join(" "),
+      assessment_text(Map.get(loan_context, :assessment))
     ]
     |> Enum.map(&to_string(&1 || ""))
+    |> Enum.join(" ")
+  end
+
+  defp assessment_text(nil), do: ""
+
+  defp assessment_text(%Assessment{} = assessment) do
+    [assessment.document_completeness, assessment.sla_state]
+    |> Enum.map(&to_string/1)
     |> Enum.join(" ")
   end
 

@@ -538,7 +538,11 @@ defmodule LoanActor.Factory do
   `LoanActor.Skill.Loader` parsing round-trip). Defaults name a tool
   (`verify_diary_chain`) that is always present in the real
   `Tool.Registry`, so `write_skill_pack!/2`'s on-disk form of these same
-  attrs is loader-valid out of the box.
+  attrs is loader-valid out of the box. `:gate_id`/`:rule` (intent 0003,
+  ADH-005) default to `nil` — an ordinary, non-gate pack; set both (never
+  just one) plus `tools_required: ["evaluate_gate"]` to build a gate pack.
+  `:rule`, when set, is the same nested-map shape `Factory.gate_attrs/1`
+  uses (string keys `"combinator"`/`"predicates"`).
   """
   @spec skill_attrs(map() | keyword()) :: map()
   def skill_attrs(overrides \\ %{}) do
@@ -554,15 +558,25 @@ defmodule LoanActor.Factory do
         tools_required: ["verify_diary_chain"],
         body: "Body.",
         files: [],
-        path: Path.join("priv/skills", id)
+        path: Path.join("priv/skills", id),
+        gate_id: nil,
+        rule: nil
       },
       overrides
     )
   end
 
-  @doc "Build a `%LoanActor.Skill{}` directly from `skill_attrs/1` — never loader-validated (see `write_skill_pack!/2` for that)."
+  @doc """
+  Build a `%LoanActor.Skill{}` directly from `skill_attrs/1` — never
+  loader-validated (see `write_skill_pack!/2` for that). `skill_attrs/1`'s
+  `:gate_id`/`:rule` keys feed `write_skill_pack!/2`'s on-disk rendering
+  only — they aren't `%Skill{}` fields (its `:gate` field holds a parsed
+  `%LoanActor.Gate{}`, never raw front-matter), so they're dropped here.
+  """
   @spec skill(map() | keyword()) :: Skill.t()
-  def skill(overrides \\ %{}), do: struct!(Skill, skill_attrs(overrides))
+  def skill(overrides \\ %{}) do
+    struct!(Skill, Map.drop(skill_attrs(overrides), [:gate_id, :rule]))
+  end
 
   @doc """
   Write a real `SKILL.md` pack under `dir` (creating the pack's own
@@ -587,12 +601,66 @@ defmodule LoanActor.Factory do
     version: #{attrs.version}
     description: #{attrs.description}
     tools_required: [#{Enum.join(attrs.tools_required, ", ")}]
-    ---
+    #{gate_front_matter(attrs.gate_id, attrs.rule)}---
 
     #{attrs.body}
     """)
 
     dir
+  end
+
+  # ---- gate-pack front-matter rendering (contracts/gate-pack-format.md's
+  # ONE exception to flat key: value lines — mirrors LoanActor.Gate's own
+  # hand-rolled, indentation-tracking parser exactly, in reverse) ----
+
+  defp gate_front_matter(nil, nil), do: ""
+  defp gate_front_matter(gate_id, nil), do: "gate_id: #{gate_id}\n"
+  defp gate_front_matter(nil, rule), do: "rule:\n#{render_rule_map(rule, 2)}\n"
+
+  defp gate_front_matter(gate_id, rule) do
+    "gate_id: #{gate_id}\nrule:\n#{render_rule_map(rule, 2)}\n"
+  end
+
+  defp render_rule_map(map, indent) do
+    map
+    |> Map.to_list()
+    |> Enum.map(&render_rule_pair(String.duplicate(" ", indent), &1, indent))
+    |> Enum.join("\n")
+  end
+
+  defp render_rule_pair(pad, {key, value}, indent) when is_map(value) do
+    "#{pad}#{key}:\n" <> render_rule_map(value, indent + 2)
+  end
+
+  defp render_rule_pair(pad, {key, value}, indent) when is_list(value) do
+    "#{pad}#{key}:\n" <> render_rule_list(value, indent + 2)
+  end
+
+  defp render_rule_pair(pad, {key, value}, _indent), do: "#{pad}#{key}: #{value}"
+
+  defp render_rule_list(items, item_indent) do
+    items
+    |> Enum.map(&render_rule_list_item(&1, item_indent))
+    |> Enum.join("\n")
+  end
+
+  defp render_rule_list_item(map, item_indent) do
+    continuation_indent = item_indent + 2
+
+    map
+    |> Map.to_list()
+    |> Enum.with_index()
+    |> Enum.map(fn {{key, value}, index} ->
+      pad =
+        if index == 0 do
+          String.duplicate(" ", item_indent) <> "- "
+        else
+          String.duplicate(" ", continuation_indent)
+        end
+
+      render_rule_pair(pad, {key, value}, continuation_indent)
+    end)
+    |> Enum.join("\n")
   end
 
   @doc """

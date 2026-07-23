@@ -215,6 +215,79 @@ defmodule LoanActor.GateTest do
     end
   end
 
+  describe "parse_rule_block_text/1 — happy (contract: hand-rolled, not general YAML)" do
+    test "parses a single-predicate rule block" do
+      text = """
+        combinator: all
+        predicates:
+          - field: assessment.document_completeness
+            op: eq
+            value: complete
+      """
+
+      assert {:ok,
+              %{
+                "combinator" => "all",
+                "predicates" => [
+                  %{"field" => "assessment.document_completeness", "op" => "eq", "value" => "complete"}
+                ]
+              }} = Gate.parse_rule_block_text(text)
+    end
+
+    test "parses multiple predicates in one list" do
+      text = """
+        combinator: any
+        predicates:
+          - field: assessment.sla_state
+            op: eq
+            value: breached
+          - field: assessment.sla_state
+            op: eq
+            value: at_risk
+      """
+
+      assert {:ok, %{"predicates" => [pred1, pred2]}} = Gate.parse_rule_block_text(text)
+      assert pred1["value"] == "breached"
+      assert pred2["value"] == "at_risk"
+    end
+
+    test "parses one level of nested combinator/predicates group" do
+      text = """
+        combinator: all
+        predicates:
+          - combinator: any
+            predicates:
+              - field: assessment.sla_state
+                op: eq
+                value: on_track
+              - field: assessment.sla_state
+                op: eq
+                value: n_a
+      """
+
+      assert {:ok, %{"predicates" => [%{"combinator" => "any", "predicates" => [_, _]}]}} =
+               Gate.parse_rule_block_text(text)
+    end
+
+    test "parses numeric and boolean scalar values" do
+      text = """
+        combinator: all
+        predicates:
+          - field: assessment.computed_at_version
+            op: gte
+            value: 3
+      """
+
+      assert {:ok, %{"predicates" => [%{"value" => 3}]}} = Gate.parse_rule_block_text(text)
+    end
+  end
+
+  describe "parse_rule_block_text/1 — boundary" do
+    test "an empty block is an error, not a silently-empty rule" do
+      assert {:error, :empty_rule_block} = Gate.parse_rule_block_text("")
+    end
+  end
+
   describe "field resolution — contract (assessment.* and state.* only)" do
     test "a state.* field resolves against the real %LoanActor.State{}" do
       attrs =
