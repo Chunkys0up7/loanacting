@@ -21,6 +21,17 @@ defmodule LoanActor.DummyActor do
   @impl GenServer
   def init(loan_id), do: {:ok, %{loan_id: loan_id}}
 
+  # Deliberately never returns normally — the whole point is to crash the
+  # process so LoanActor.Supervisor's restart mechanics have something
+  # real to prove. Dialyzer correctly reports this as a genuine no_return
+  # finding since GenServer's own @callback claims a returning shape;
+  # unlike an actual bug, this is the fixture's entire purpose, so it's
+  # suppressed by name rather than silencing dialyzer more broadly. Found
+  # via the first CI run with a real MIX_ENV=test dialyzer pass — local
+  # runs throughout this project's development never set MIX_ENV
+  # explicitly for `mix dialyzer`, which defaults to :dev and therefore
+  # never compiled (or analyzed) test/support/*.ex at all.
+  @dialyzer {:nowarn_function, handle_cast: 2}
   @impl GenServer
   def handle_cast(:crash, _state), do: raise("simulated crash (LoanActor.DummyActor)")
 end

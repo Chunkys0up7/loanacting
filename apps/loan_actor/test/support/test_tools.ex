@@ -74,6 +74,12 @@ defmodule LoanActor.TestTools do
       })
     end
 
+    # Deliberately never returns normally (raises unconditionally) — the
+    # registry's job is to rescue this, not something dialyzer can
+    # verify statically. See dummy_actor.ex's own comment for why this
+    # was never caught until a real MIX_ENV=test dialyzer run (CI's,
+    # here, not any local run this project's development used).
+    @dialyzer {:nowarn_function, execute: 2}
     @impl LoanActor.Tool
     def execute(_args, _ctx), do: raise("boom")
   end
@@ -116,6 +122,11 @@ defmodule LoanActor.TestTools do
       })
     end
 
+    # Deliberately violates LoanActor.Tool's own @callback return shape —
+    # the registry's job is to detect this at runtime, not something
+    # dialyzer can verify statically (it correctly reports the mismatch;
+    # that's the fixture's entire purpose, not a bug).
+    @dialyzer {:nowarn_function, execute: 2}
     @impl LoanActor.Tool
     def execute(_args, _ctx), do: :oops
   end
