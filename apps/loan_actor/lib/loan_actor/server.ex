@@ -437,15 +437,35 @@ defmodule LoanActor.Server do
   # reconstruction; not byte-identical to the live value, which came from a
   # separate `DateTime.utc_now()` call a few microseconds apart — no diary
   # entry stores that exact value, only a hash of the state it was set on).
+  # A diary entry's `type` alone does not say whether it came from a
+  # reactive event actually attempting that transition, or from a tool
+  # logging content under a type name that happens to collide with a
+  # transition-driving event type — `:goal_set` is both: the reactive
+  # event type carrying `{:spawned, :goal_set} => :awaiting_documents`,
+  # AND the diary type `set_goal`'s own tool uses to log a goal it added
+  # at whatever status the loan already reached (see
+  # server_heartbeat_test.exs's own "skill-triggered set_goal" scenario,
+  # which reaches `:processing` before that tool ever fires). Checking
+  # `Model.legal?(acc.status, entry.type)` against the REPLAY'S OWN
+  # current position — rather than "is this type a member of the set of
+  # types that have SOME edge from SOME status" — is what makes this
+  # correct for both: the genesis `:goal_set` replays exactly as it did
+  # live (legal from `:spawned`), and a later tool-logged `:goal_set` at
+  # a non-spawned status is skipped instead of raising, exactly as it was
+  # skipped by the live pipeline (which never fed it through
+  # `State.transition/2` in the first place — only the tool called
+  # `State.add_goal/2`, and rehydrate/2 does not currently reconstruct
+  # goals from the diary at all; that gap is unchanged by this fix). A
+  # bug of exactly this shape (a fixed set-membership check, not a
+  # per-position legality check) was found and fixed for `:heartbeat`
+  # earlier (FT-034); this is the same defect recurring for `:goal_set`.
   defp rehydrate(loan_id, store) do
-    event_types = Model.transition_driving_event_types()
-
     state =
       loan_id
       |> then(&store.stream(&1, []))
       |> Enum.reduce(State.new(%{loan_id: loan_id}), fn entry, acc ->
         cond do
-          MapSet.member?(event_types, entry.type) -> State.transition(acc, entry.type)
+          Model.legal?(acc.status, entry.type) -> State.transition(acc, entry.type)
           entry.type == :heartbeat -> State.record_heartbeat(acc, entry.timestamp)
           true -> acc
         end

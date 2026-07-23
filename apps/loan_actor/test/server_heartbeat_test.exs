@@ -1,7 +1,7 @@
 defmodule LoanActor.ServerHeartbeatTest do
   @moduledoc """
   FT-018 — `LoanActor.Server` periodic loop (heartbeat).
-  Taxonomy: happy / boundary.
+  Taxonomy: happy / boundary / replay.
 
   Verifies SC-011 cadence, scaled to `config/test.exs`'s `heartbeat_ms: 100`
   (SC-011 itself: 1s interval, 10s window, 9..11 entries — the same ratio
@@ -200,6 +200,62 @@ defmodule LoanActor.ServerHeartbeatTest do
 
       assert entries_of_type(loan_id, :skill_activated) != []
       assert entries_of_type(loan_id, :goal_set) != []
+    end
+  end
+
+  describe "heartbeat — replay (crash-recovery survives a non-spawned :goal_set diary entry)" do
+    test "a loan whose set_goal tool fired at :processing restarts cleanly after a crash" do
+      # Regression test for a real bug found auditing intent 0001's
+      # closeout: rehydrate/2 used to replay any diary entry whose TYPE
+      # was a member of Model.transition_driving_event_types/0, rather
+      # than checking legality against the replay's OWN current
+      # position. :goal_set is both a reactive event type (legal only
+      # from :spawned) AND the diary type this test's own fixture skill's
+      # set_goal tool logs at :processing (same scenario as the test
+      # above) — feeding that second :goal_set entry back through
+      # State.transition/2 during rehydrate always raised
+      # IllegalTransitionError (no edge for :processing + :goal_set),
+      # crash-looping the actor forever on every subsequent restart. Same
+      # defect shape FT-034 already found and fixed for :heartbeat.
+      tmp_dir =
+        Factory.write_skill_pack!(Factory.unique_tmp_dir("loan_actor_heartbeat_replay_skill"), %{
+          id: "0001-set-goal-demo",
+          name: "set-goal-demo",
+          description: "processing loan needs a periodic reminder goal set automatically.",
+          tools_required: ["set_goal"]
+        })
+
+      Application.put_env(:loan_actor, :skills_dir, tmp_dir)
+
+      loan_id = Factory.unique_loan_id()
+      {:ok, pid} = ServerTestSupport.spawn_and_track(loan_id)
+
+      {:ok, _seq1} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_set}))
+      {:ok, _seq2} = LoanActor.send_event(loan_id, Factory.event(%{type: :document_uploaded}))
+      {:ok, _seq3} = LoanActor.send_event(loan_id, Factory.event(%{type: :goal_satisfied}))
+
+      eventually(fn ->
+        case LoanActor.state(loan_id) do
+          {:ok, %{goals: [_ | _], status: :processing}} = ok -> ok
+          _ -> nil
+        end
+      end)
+
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 2_000
+
+      new_pid =
+        eventually(fn ->
+          case LoanActor.whereis(loan_id) do
+            nil -> nil
+            ^pid -> nil
+            other -> other
+          end
+        end)
+
+      assert is_pid(new_pid), "actor never restarted — crash-looped on rehydrate"
+      assert {:ok, %{status: :processing}} = LoanActor.state(loan_id)
     end
   end
 
