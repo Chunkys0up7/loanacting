@@ -18,6 +18,7 @@ apps/loan_actor/priv/diary_files/*
 # under apps/loan_actor/priv/ when `mix run` is invoked from the umbrella
 # root rather than the app dir.
 /priv/mnesia_dev/
+MnesiaCore.*
 
 # Node / frontend
 apps/web/node_modules/
