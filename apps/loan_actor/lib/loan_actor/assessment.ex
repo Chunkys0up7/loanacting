@@ -11,6 +11,7 @@ defmodule LoanActor.Assessment do
 
   @sla_states [:on_track, :at_risk, :breached, :n_a]
   @document_completeness_values [:complete, :incomplete, :unknown]
+  @at_risk_window_ms 24 * 60 * 60 * 1000
 
   @enforce_keys [
     :loan_id,
@@ -40,6 +41,68 @@ defmodule LoanActor.Assessment do
           data_quality_flags: [atom()],
           computed_at_version: non_neg_integer()
         }
+
+  @doc """
+  Derive an assessment purely from `state` — no diary I/O, no wall-clock
+  reads (`research.md` R-6). Shared by `LoanActor.Tools.AssessLoan` (which
+  wraps this as the `assess_loan` tool, producing the standalone
+  `:assessment` diary entry) and `LoanActor.Tools.EvaluateGate` (which
+  needs the SAME assessment as an evaluation input, computed independently
+  rather than threaded through tool args — both calls are pure functions
+  of the same state snapshot, so they always agree; see ADH-004's own
+  design note for why args-passing was rejected).
+  """
+  @spec derive_from_state(LoanActor.State.t()) :: t()
+  def derive_from_state(state) do
+    new(%{
+      loan_id: state.loan_id,
+      document_completeness: document_completeness(state),
+      goal_ages: goal_ages(state),
+      sla_state: sla_state(state),
+      data_quality_flags: [],
+      computed_at_version: state.version
+    })
+  end
+
+  defp document_completeness(state) do
+    case Map.get(state.context, "document_completeness", :unknown) do
+      value when value in @document_completeness_values -> value
+      _other -> :unknown
+    end
+  end
+
+  defp goal_ages(state) do
+    created_ats = Map.get(state.context, "goal_created_at", %{})
+
+    state.goals
+    |> Enum.filter(&(&1.status == :open))
+    |> Map.new(fn goal ->
+      {goal.goal_id, age_ms(state.last_heartbeat_at, Map.get(created_ats, goal.goal_id))}
+    end)
+  end
+
+  defp age_ms(nil, _created_at), do: 0
+  defp age_ms(_now, nil), do: 0
+  defp age_ms(now, created_at), do: max(DateTime.diff(now, created_at, :millisecond), 0)
+
+  defp sla_state(state) do
+    open_with_due = Enum.filter(state.goals, &(&1.status == :open and &1.due_at != nil))
+
+    cond do
+      open_with_due == [] -> :n_a
+      state.last_heartbeat_at == nil -> :on_track
+      Enum.any?(open_with_due, &breached?(&1, state.last_heartbeat_at)) -> :breached
+      Enum.any?(open_with_due, &at_risk?(&1, state.last_heartbeat_at)) -> :at_risk
+      true -> :on_track
+    end
+  end
+
+  defp breached?(goal, now), do: DateTime.compare(now, goal.due_at) == :gt
+
+  defp at_risk?(goal, now) do
+    ms_until_due = DateTime.diff(goal.due_at, now, :millisecond)
+    ms_until_due >= 0 and ms_until_due <= @at_risk_window_ms
+  end
 
   @doc "The closed set of legal `document_completeness` values."
   @spec document_completeness_values() :: [document_completeness()]

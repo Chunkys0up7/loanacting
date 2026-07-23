@@ -24,7 +24,8 @@ config :loan_actor,
     LoanActor.Tools.AppendNote,
     LoanActor.Tools.RequestOperatorApproval,
     LoanActor.Tools.VerifyDiaryChain,
-    LoanActor.Tools.AssessLoan
+    LoanActor.Tools.AssessLoan,
+    LoanActor.Tools.EvaluateGate
   ],
   # PII guard for tool args (FT-014 wired per constitution Principle VIII).
   tool_pii_guard: {LoanActor.PIIGuard, :apply}

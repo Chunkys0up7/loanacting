@@ -8,17 +8,28 @@ defmodule LoanActor.Tool.Context do
   `state` is the loan's current `%LoanActor.State{}`; typed as `term()` until
   FT-010 lands the struct (the contract in `contracts/tool-behaviour.md` is
   the normative reference).
+
+  `gate` (intent 0003, ADH-004) is an OPTIONAL field, `nil` for every
+  foundation tool — populated by the Server ONLY for `evaluate_gate`
+  invocations, carrying the already-resolved, per-loan-version-pinned
+  `%LoanActor.Gate{}` to evaluate (`contracts/gate-behaviour.md` invariant
+  8: "version pinning is a Server-level concern, not this tool's... the
+  Server hands it via ctx"). A generic, foundation-level struct gaining one
+  optional field for a later feature mirrors how `%LoanActor.State{}`
+  itself grew fields over time; every other tool simply never sets or
+  reads it.
   """
 
   @enforce_keys [:loan_id, :state, :loop, :actor, :invocation_id]
-  defstruct [:loan_id, :state, :loop, :actor, :invocation_id]
+  defstruct [:loan_id, :state, :loop, :actor, :invocation_id, :gate]
 
   @type t :: %__MODULE__{
           loan_id: String.t(),
           state: term(),
           loop: :periodic | :planning,
           actor: String.t(),
-          invocation_id: String.t()
+          invocation_id: String.t(),
+          gate: LoanActor.Gate.t() | nil
         }
 
   @doc """
@@ -33,7 +44,8 @@ defmodule LoanActor.Tool.Context do
       state: Map.fetch!(attrs, :state),
       loop: attrs |> Map.fetch!(:loop) |> validate_loop(),
       actor: attrs |> Map.fetch!(:actor) |> validate_binary(:actor),
-      invocation_id: attrs |> Map.fetch!(:invocation_id) |> validate_binary(:invocation_id)
+      invocation_id: attrs |> Map.fetch!(:invocation_id) |> validate_binary(:invocation_id),
+      gate: Map.get(attrs, :gate)
     }
 
     struct!(__MODULE__, fields)
