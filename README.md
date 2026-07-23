@@ -2,18 +2,29 @@
 
 The loan is the agent. A long-running supervised process on the BEAM with its own diary, goals, and 30-year lifespan — surfaced through CopilotKit over AG-UI.
 
-## Start here
+## Run it
+
+The foundation (spec 001) is implemented. **Follow
+[`specs/001-loan-actor-foundation/quickstart.md`](specs/001-loan-actor-foundation/quickstart.md)**
+to install dependencies, boot the backend + frontend, and run the test suite —
+it's the single source of truth for local setup, and its own "Useful commands"
+and "Smoke checklist" sections are what CI checks (`mix test.smoke`) mirror.
+
+## Understand it first
 
 1. **Read [`CLAUDE.md`](CLAUDE.md)** — the standing operating contract for every session.
 2. **Read [`loan-as-actor.html`](loan-as-actor.html)** — the long-form architectural rationale.
 3. **Read [`.specify/memory/constitution.md`](.specify/memory/constitution.md)** — the non-negotiable principles.
-4. **Run [`SETUP.md`](SETUP.md)** — installs `uv`, `specify-cli`, runs `specify init`, authors the constitution.
 
-## Then build
+## Extending the spec
 
+Every change — however small — is an intent through the full spec-kit pipeline
+(CLAUDE.md §3), not a direct code edit:
+
+4. **Run [`SETUP.md`](SETUP.md)** if spec-kit itself isn't installed yet (`uv`, `specify-cli`, `specify init`).
 5. **Open the foundation spec**: [`specs/001-loan-actor-foundation/`](specs/001-loan-actor-foundation/)
-6. **Follow [`specs/001-loan-actor-foundation/quickstart.md`](specs/001-loan-actor-foundation/quickstart.md)** for the developer onboarding path.
-7. **Execute tasks from [`specs/001-loan-actor-foundation/tasks.md`](specs/001-loan-actor-foundation/tasks.md)** — FT-001 onward.
+6. **Check the status ledger in [`specs/001-loan-actor-foundation/tasks.md`](specs/001-loan-actor-foundation/tasks.md)** for what's done and what's next.
+7. New requirements start at `intents/NNNN-<slug>.md`, then `/speckit-specify` onward (CLAUDE.md §3).
 
 ## Repository layout
 

@@ -1,7 +1,7 @@
 # FT-004 — CI workflow per specs/001-loan-actor-foundation/tasks.md.
 #
 # Jobs:
-#   backend  — mix test, mix credo --strict, mix dialyzer, mix test.load
+#   backend  — mix test, mix credo --strict, mix dialyzer, mix test.smoke, mix test.load
 #   frontend — npm test (Vitest), Playwright e2e against a booted backend
 #
 # Steps whose subject tasks have not landed yet are guarded by hashFiles()
@@ -43,6 +43,14 @@ jobs:
       - run: mix test
       - run: mix credo --strict
       - run: mix dialyzer
+
+      - name: Smoke test (quickstart.md's own checklist)
+        # FT-040 delivers test/smoke_test.exs; guard keeps CI honest until then.
+        # Already covered by the `mix test` run above (not excluded by
+        # default, unlike :load/:slow) — this step is a separately labeled,
+        # fast-to-spot gate mirroring quickstart.md's own numbered checklist.
+        if: hashFiles('apps/loan_actor/test/smoke_test.exs') != ''
+        run: mix test.smoke
 
       - name: Load tests (NFR budgets)
         # FT-035 delivers test/load/nfr_load_test.exs; guard keeps CI honest until then.
