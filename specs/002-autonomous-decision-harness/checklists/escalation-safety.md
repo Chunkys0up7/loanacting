@@ -6,7 +6,7 @@ non-deterministic capability) and regulatory audit-trail completeness (SC-006's 
 taxonomy category, absent from the foundation spec entirely). This is a unit-test suite for
 the WRITTEN REQUIREMENTS, not a test plan for the eventual code.
 
-**Created**: 2026-07-23
+**Created**: 2026-07-23 · **Resolved**: 2026-07-23 (all 22 items)
 **Feature**: [spec.md](../spec.md), [plan.md](../plan.md), [data-model.md](../data-model.md),
 [contracts/llm-escalation-port.md](../contracts/llm-escalation-port.md)
 
@@ -19,136 +19,176 @@ completeness. **Depth**: Standard. **Audience**: PR reviewer, before `/speckit-i
 
 ## Requirement Completeness
 
-- [ ] CHK001 Are requirements defined for what happens if `evaluate_gate` itself throws or
+- [x] CHK001 Are requirements defined for what happens if `evaluate_gate` itself throws or
       returns a shape outside `pass`/`fail`/`indeterminate` (an engine bug, not a gate-content
       problem)? [Gap — `contracts/gate-behaviour.md` documents outcome semantics but not the
       engine's OWN failure mode, as distinct from `assess_via_llm`'s 4 documented LLM failure
-      modes]
-- [ ] CHK002 Are requirements defined for what happens if TWO gate packs with the same `gate_id`
+      modes] **Resolved**: `gate-behaviour.md` invariant 9 — this is an ordinary tool
+      malfunction (`:tool_failed`), not a fourth outcome value; no new mechanism needed.
+- [x] CHK002 Are requirements defined for what happens if TWO gate packs with the same `gate_id`
       but different content are simultaneously loaded (not a version sequence, a genuine
       collision)? [Gap, Spec §Key Entities "Rule (a gate)", `gate-pack-format.md` invariant 6]
-- [ ] CHK003 Is there a requirement for what a `:decision`/`:escalated` diary entry looks like
+      **Resolved**: `gate-pack-format.md` invariant 6 — loader picks the highest `version` as
+      "current," a deterministic tie-break, not an error.
+- [x] CHK003 Is there a requirement for what a `:decision`/`:escalated` diary entry looks like
       when the loan crashes AFTER `evaluate_gate` returns but BEFORE the diary append completes
       (a narrower window than the "crash before answered" edge case spec.md already names)?
-      [Gap, Spec §Edge Cases]
-- [ ] CHK004 Are requirements defined for how an operator revokes/cancels a pending escalation
+      [Gap, Spec §Edge Cases] **Resolved**: `data-model.md` Relationships section — inherits
+      the foundation's own existing atomicity guarantee (Principle IV); not a new failure window.
+- [x] CHK004 Are requirements defined for how an operator revokes/cancels a pending escalation
       that is no longer relevant (e.g., the loan's goal was withdrawn while the question was
-      outstanding)? [Gap]
+      outstanding)? [Gap] **Resolved**: `spec.md` Assumptions — explicitly out of scope,
+      mirroring the same already-accepted limitation for pending HITL requests in foundation.
 
 ## Requirement Clarity
 
-- [ ] CHK005 Is "genuinely indeterminate" (User Story 2, spec.md) distinguished from "a rule
+- [x] CHK005 Is "genuinely indeterminate" (User Story 2, spec.md) distinguished from "a rule
       author chose to treat this absence as indeterminate" (`gate-behaviour.md`'s own outcome
       semantics) clearly enough that two different readers would classify the same test
       scenario the same way? [Clarity, Spec §User Story 2, `gate-behaviour.md` Outcome semantics]
-- [ ] CHK006 Is "low-confidence" (FR-006, one of the four LLM failure modes) quantified anywhere
+      **Resolved**: `gate-behaviour.md` Outcome semantics — named as two distinct sources
+      (engine-level vs. rule-design-level), both surfaced via `cause`.
+- [x] CHK006 Is "low-confidence" (FR-006, one of the four LLM failure modes) quantified anywhere
       — a threshold, or explicitly left to the adapter implementation to define? [Clarity,
-      Spec §FR-006, `llm-escalation-port.md` Failure modes table]
-- [ ] CHK007 Is "full input hash" in the constitution's own Principle III wording, as applied to
+      Spec §FR-006, `llm-escalation-port.md` Failure modes table] **Resolved**:
+      `llm-escalation-port.md` — explicitly an adapter-configuration concern, not defined by
+      this port (consistent with R-1 scoping a real adapter out of this feature).
+- [x] CHK007 Is "full input hash" in the constitution's own Principle III wording, as applied to
       this feature's escalation entries, unambiguous about which inputs are hashed (the
       `situation` map, the `%Assessment{}`, both)? [Clarity, `data-model.md` `:escalation_failed`
-      row, `research.md` R-4]
+      row, `research.md` R-4] **Resolved**: `data-model.md` `:escalated` row now names
+      `input_hash` explicitly (hash of the exact `situation` map); the broader gap this exposed
+      (missing `prompt_id`/`model`/`model_version`/`decision_delta_hash` fields) was also closed
+      on `:escalation_resolved`/`:escalation_failed`.
 
 ## Requirement Consistency
 
-- [ ] CHK008 Do FR-011 (gate-version pinning) and `gate-pack-format.md` invariant 6
+- [x] CHK008 Do FR-011 (gate-version pinning) and `gate-pack-format.md` invariant 6
       (`gate_id` uniqueness NOT enforced by the loader) combine consistently — is it clear a
       loan can be pinned to a version that a LATER pack update silently orphans (no `gate_id`
       match at all, not just a version mismatch)? [Consistency, Spec §FR-011,
-      `gate-pack-format.md` invariant 6]
-- [ ] CHK009 Are the escalation `target` values (`:operator` / `:llm`, `data-model.md`
+      `gate-pack-format.md` invariant 6] **Resolved**: `gate-pack-format.md` invariant 8 — gate
+      packs are additive-only on disk; a pinned `gate_id`+`version` is never deleted/overwritten.
+- [x] CHK009 Are the escalation `target` values (`:operator` / `:llm`, `data-model.md`
       `%Escalation{}`) consistent with `contracts/llm-escalation-port.md`'s own framing of the
       port as "the ONLY non-deterministic capability" — is it explicit that `:operator` target
       escalations are NOT going through this port at all (reusing `request_operator_approval`
       unchanged), so as not to imply the port has two targets internally? [Consistency,
-      `data-model.md`, `llm-escalation-port.md`]
+      `data-model.md`, `llm-escalation-port.md`] **Resolved**: `data-model.md` `%Escalation{}`
+      `target` field note — explicit that `:operator` is structurally separate, not routed
+      through the port.
 
 ## Acceptance Criteria Quality
 
-- [ ] CHK010 Can SC-004 ("a check independent of manual review confirms the automated-escalation
+- [x] CHK010 Can SC-004 ("a check independent of manual review confirms the automated-escalation
       capability is invoked from exactly one place") be objectively measured without reading the
       check's own implementation — does the spec say what "one place" means precisely enough
       (one function, one module, one call expression)? [Measurability, Spec §SC-004]
-- [ ] CHK011 Can SC-005's replay claim ("reproduces its exact assessment, decision, and
+      **Resolved**: `spec.md` SC-004 tightened — "exactly one function... verified by one named
+      check."
+- [x] CHK011 Can SC-005's replay claim ("reproduces its exact assessment, decision, and
       escalation history... not just the foundation's pre-existing state fields") be verified
       by a reviewer without also reading `server_property_test.exs`'s implementation — is
       "exact" defined precisely enough (byte-identical structs? entry-type sequence only?)?
-      [Measurability, Spec §SC-005]
+      [Measurability, Spec §SC-005] **Resolved**: `spec.md` SC-005 tightened — explicit
+      `:erlang.term_to_binary/1` equality, matching the foundation's own existing mechanism.
 
 ## Scenario Coverage
 
-- [ ] CHK012 Are requirements defined for the Exception/Error scenario class beyond the 4 named
+- [x] CHK012 Are requirements defined for the Exception/Error scenario class beyond the 4 named
       LLM failure modes — specifically, what happens if the ADAPTER ITSELF is misconfigured
       (e.g., not registered/no adapter module set) at the point `assess_via_llm` is invoked?
-      [Coverage, Exception Flow, Gap]
-- [ ] CHK013 Are Recovery-scenario requirements defined for a gate pack that was rejected at
+      [Coverage, Exception Flow, Gap] **Resolved**: `llm-escalation-port.md` — an unconfigured
+      adapter is a tool malfunction (`{:error, :not_configured}`, `:tool_failed`), explicitly
+      distinct from the 4 LLM-response failure modes.
+- [x] CHK013 Are Recovery-scenario requirements defined for a gate pack that was rejected at
       load time (per FR-009) being CORRECTED and reloaded — does the spec say whether a loan
       that was mid-escalation because its only matching gate pack was rejected gets
       re-evaluated automatically once the fix loads, or requires an operator action? [Coverage,
-      Recovery, Gap]
-- [ ] CHK014 Are Non-Functional requirements (performance) for `evaluate_gate`'s OWN evaluation
+      Recovery, Gap] **Resolved**: `gate-pack-format.md` new "Recovery from a rejected pack"
+      section — no escalation ever existed for this case; the next loop pass re-attempts
+      automatically, no special mechanism.
+- [x] CHK014 Are Non-Functional requirements (performance) for `evaluate_gate`'s OWN evaluation
       cost (as distinct from `assess_loan`'s, which `plan.md`'s Performance Goals section
       addresses) stated anywhere, given a gate pack's predicate list could in principle be
-      large? [Coverage, Gap, `plan.md` Performance Goals]
+      large? [Coverage, Gap, `plan.md` Performance Goals] **Resolved**: `gate-behaviour.md`
+      invariant 11 — bounded by the DSL's own hard cap (R-2); no separate NFR needed.
 
 ## Edge Case Coverage
 
-- [ ] CHK015 Is the "two different rule packs both trigger on the same loop pass" edge case
+- [x] CHK015 Is the "two different rule packs both trigger on the same loop pass" edge case
       (spec.md Edge Cases) specific about ORDERING — if pack A's gate outcome changes
       `state.context` in a way that would affect pack B's predicate evaluation, is evaluation
       order (and its determinism) specified, or left implicitly to loader iteration order?
-      [Edge Case, Ambiguity, Spec §Edge Cases]
-- [ ] CHK016 Is there a stated requirement for the maximum number of escalations a single loan
+      [Edge Case, Ambiguity, Spec §Edge Cases] **Resolved**: `gate-behaviour.md` invariant 10 —
+      all gates in a pass see the same snapshot (input-independent of each other); effect
+      application order is deterministic (sorted by `gate_id`) for diary-ordering purposes only.
+- [x] CHK016 Is there a stated requirement for the maximum number of escalations a single loan
       may have pending simultaneously (e.g., two different gates both going `:indeterminate` in
       the same pass) — does FR-004's "raises an escalation" language imply one at a time, or is
-      concurrent-pending explicitly allowed? [Gap, Spec §FR-004]
+      concurrent-pending explicitly allowed? [Gap, Spec §FR-004] **Resolved**: `data-model.md`
+      — multiple simultaneous pending escalations are explicitly allowed, mirroring foundation's
+      own existing `hitl_requests` map design (already multi-request-capable).
 
 ## Non-Functional Requirements (Regulatory Emphasis)
 
-- [ ] CHK017 Does the spec state a retention requirement for escalation records containing
+- [x] CHK017 Does the spec state a retention requirement for escalation records containing
       cleartext LLM output (the `research.md` R-4 exception) — is "as long as the diary exists"
       implicit, or does regulatory completeness require something more specific (e.g.,
-      independent of diary retention)? [Gap, Regulatory, `research.md` R-4]
-- [ ] CHK018 Are requirements defined for HOW an auditor queries "every decision made under gate
+      independent of diary retention)? [Gap, Regulatory, `research.md` R-4] **Resolved**:
+      `spec.md` Assumptions — no separate retention policy; lives exactly as long as the diary
+      (which itself has no expiry mechanism anywhere in this codebase).
+- [x] CHK018 Are requirements defined for HOW an auditor queries "every decision made under gate
       version X" across all loans (a cross-loan query), or is the per-loan version-pinning
       guarantee (FR-011) only ever exercised per-loan, with no stated cross-loan audit
-      capability? [Gap, Regulatory, Spec §FR-011]
-- [ ] CHK019 Is it specified whether a gate pack's OWN `rule` content (the predicate list itself,
+      capability? [Gap, Regulatory, Spec §FR-011] **Resolved**: `spec.md` Assumptions —
+      explicitly out of scope, consistent with foundation's existing "no portfolio-level UI"
+      exclusion; a future intent's job.
+- [x] CHK019 Is it specified whether a gate pack's OWN `rule` content (the predicate list itself,
       not just its evaluation outcomes) needs to be independently retrievable for a given
       `gate_version` after the pack has been updated/superseded — i.e., can an auditor see
       exactly what rule an old decision was actually evaluated against, or only that a version
-      string was recorded? [Gap, Regulatory, `data-model.md` `%Decision{}`]
+      string was recorded? [Gap, Regulatory, `data-model.md` `%Decision{}`] **Resolved**:
+      `gate-pack-format.md` invariant 8 (same fix as CHK008) — additive-only pack retention
+      means the exact rule content stays retrievable for any `gate_version` ever pinned.
 
 ## Dependencies & Assumptions
 
-- [ ] CHK020 Is the assumption that "diary-derived facts draws only from information already
+- [x] CHK020 Is the assumption that "diary-derived facts draws only from information already
       reachable from the loan's existing state and diary" (spec.md Assumptions) validated
       against `research.md` R-6's adopted answer (assess_loan reads only live state, never the
       diary directly) — do these two documents actually agree, or does R-6 narrow the
       Assumption in a way the spec's own wording doesn't reflect? [Consistency, Spec
-      §Assumptions, `research.md` R-6]
-- [ ] CHK021 Is the dependency on `001-loan-actor-foundation/contracts/skill-format.md`'s own
+      §Assumptions, `research.md` R-6] **Resolved**: `spec.md` Assumptions reworded to state
+      R-6's adopted answer identically, not just compatibly.
+- [x] CHK021 Is the dependency on `001-loan-actor-foundation/contracts/skill-format.md`'s own
       forward-reference (resolved as `research.md` R-5) documented anywhere a future reader of
       spec 001 alone (without reading this feature's research.md) would find it — or does spec
       001 now have a stale/incomplete cross-reference now that this feature has actually
-      resolved it? [Traceability, Gap]
+      resolved it? [Traceability, Gap] **Resolved**: added a post-closure note directly to spec
+      001's `skill-format.md` pointing to `research.md` R-5 (pure additive cross-reference, no
+      behavior change, appropriate even though spec 001 is Closed).
 
 ## Ambiguities & Conflicts
 
-- [ ] CHK022 Does `plan.md`'s Constitution Check table's own resolution of the Principle
+- [x] CHK022 Does `plan.md`'s Constitution Check table's own resolution of the Principle
       III/VIII tension (mirroring `research.md` R-4) match EXACTLY the scoping clarification
       just added to `data-model.md` (per `/speckit-analyze` finding C1) — are all three
       documents (`plan.md`, `research.md`, `data-model.md`) now saying the same thing about this
       exception's scope, or could a reader reconcile them differently? [Consistency, Conflict
       risk, `plan.md` Constitution Check, `research.md` R-4, `data-model.md`
-      `:escalation_resolved`]
+      `:escalation_resolved`] **Resolved**: `plan.md`'s "Re-check after Phase 1" section and
+      Risks table both rewritten to state the corrected understanding identically to
+      `data-model.md` — this was never an actual constitution conflict, only an
+      under-specified scoping question, now closed the same way in all three documents.
 
 ## Notes
 
-- Check items off as completed: `[x]`. Findings that require a spec/plan/data-model edit should
-  be resolved the same way `/speckit-analyze`'s C1/A1 findings were — a documented, dated fix,
-  not a silent edit.
 - This checklist deliberately does NOT re-cover ground `checklists/requirements.md` (produced by
-  `/speckit-specify`) already validated — it targets the two highest-risk NEW areas only.
+  `/speckit-specify`) already validated — it targeted the two highest-risk NEW areas only.
 - All 22 items carry an explicit `[Spec §...]`/`[Gap]`/`[Ambiguity]`/`[Consistency]` traceability
   marker (100%, exceeding this checklist type's own ≥80% minimum).
+- Every resolution is a documentation edit to `spec.md`/`plan.md`/`data-model.md`/
+  `contracts/*.md` (and one post-closure cross-reference in spec 001) — no code, consistent with
+  this being a requirements-quality pass, not an implementation pass. Feature is now ready for
+  `/speckit-implement`.

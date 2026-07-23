@@ -213,11 +213,20 @@ does — proving rules are additive content, not code changes.
 - **SC-003**: Every one of the defined automated-escalation failure modes (timeout, malformed
   output, refusal, low-confidence) is independently demonstrated to produce its specific,
   deterministic fallback and a diary entry — none left unhandled.
-- **SC-004**: A check independent of manual review confirms the automated-escalation capability
-  is invoked from exactly one place in the system.
-- **SC-005**: Replaying a loan's diary reproduces its exact assessment, decision, and escalation
-  history for every scripted scenario exercised by this feature's own tests — not just the
-  foundation's pre-existing state fields.
+- **SC-004**: A single automated static check (one source-tree scan, independent of manual code
+  review) confirms exactly one function in the entire codebase calls the automated-escalation
+  capability. *(Tightened 2026-07-23 per `/speckit-checklist` finding CHK010 — "exactly one
+  place" previously left "place" undefined; it means one call-site function, verified by one
+  named check, mirroring the foundation's existing `LoanActor.Credo.NoLLM` mechanism.)*
+- **SC-005**: For every scripted scenario this feature's own tests exercise, killing and
+  restarting a loan produces an assessment/decision/escalation history that is field-for-field
+  identical to the pre-crash history when compared via `:erlang.term_to_binary/1` equality —
+  excluding only fields already excepted elsewhere in this codebase for the same documented
+  reason (e.g. `last_heartbeat_at`'s live-clock value). This extends, not merely repeats, the
+  foundation's own existing replay guarantee to this feature's new state. *(Tightened 2026-07-23
+  per `/speckit-checklist` finding CHK011 — "exact"/"reproduces" previously had no stated
+  comparison method; this now matches the exact mechanism `server_property_test.exs` already
+  uses for the foundation's own replay claim.)*
 - **SC-006**: Every applicable test-coverage category (happy, boundary, error, race, replay,
   regulatory, security) has at least one passing test, mapped in the delivering commit's own
   description — regulatory coverage specifically addresses rule-version traceability and
@@ -231,6 +240,12 @@ does — proving rules are additive content, not code changes.
 - "Diary-derived facts" draws only from information already reachable from the loan's existing
   state and diary (document-completeness signals, goal ages, timing/SLA clocks already
   expressible in foundation terms) — this feature does not introduce new external data sources.
+  Precisely: `assess_loan` itself reads ONLY the live `state` struct, never the diary directly;
+  "diary-derived" describes how those facts originally got INTO `state.context` (via the
+  incremental-update mechanism `research.md` R-3 adopts), not a second read path `assess_loan`
+  also has. *(Reconciled 2026-07-23 per `/speckit-checklist` finding CHK020 — this Assumption
+  and `research.md` R-6's adopted answer are now stated identically rather than merely
+  compatible.)*
 - The automated escalation path's underlying provider/vendor is not decided by this
   specification; only the port/contract it must satisfy (reachable only from `indeterminate`,
   every failure mode has a fallback, every call diary-logged) is in scope here.
@@ -238,3 +253,19 @@ does — proving rules are additive content, not code changes.
   evaluations are introduced by this feature.
 - Real-world rule authoring (a UI or authoring workflow for non-technical rule authors) is out of
   scope; rule packs are hand-authored markdown files, the same way foundation skill packs are.
+- **Out of scope (added 2026-07-23 per `/speckit-checklist` findings CHK004/CHK018)**: an
+  operator-initiated capability to cancel/revoke a pending escalation that is no longer
+  relevant, and a cross-loan audit query capability (e.g. "every decision made under gate
+  version X, across every loan"). Both are genuine, real capabilities a production system would
+  likely eventually want — neither is introduced here. The first mirrors an already-accepted
+  foundation limitation (pending HITL requests have no cancel mechanism either, per spec 001's
+  own "operator never responds" edge case, deferred to a documented timeout in a later intent).
+  The second would require a cross-loan index/reporting layer that doesn't exist anywhere in
+  this codebase yet, consistent with this project's existing "no portfolio-level UI" exclusion
+  (intent 0001) — a future intent's job, not a silent scope expansion of this one.
+- **Escalation records (including the R-4 cleartext-output exception) have no separate retention
+  policy** (added 2026-07-23 per `/speckit-checklist` finding CHK017) — they live exactly as
+  long as the diary itself does. No diary retention/expiry mechanism exists anywhere in this
+  codebase today (the diary is designed for a loan's full 30-year lifespan, per intent 0001's
+  own framing); inventing a separate retention policy just for this one entry type would be new,
+  unscoped work with nothing to attach to.

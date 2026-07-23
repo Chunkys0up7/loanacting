@@ -37,6 +37,13 @@ tools_required: [request_document]
   loan's match-text `{status, latest event type, open goal descriptions}`. Intentionally
   naive; intent 0003 owns real assessment-driven selection.
 
+  **Post-closure note (2026-07-23, added during intent 0003's own `/speckit-checklist` pass,
+  finding CHK021 — spec 001 is Closed; this is a pure additive cross-reference, no behavior
+  change):** resolved conservatively in `specs/002-autonomous-decision-harness/research.md` R-5
+  — `match/2`'s algorithm is unchanged; its `loan_context` input gains an `assessment:` key so
+  gate-pack triggers can reference assessment-derived concepts. See that document for the full
+  reasoning.
+
 ## Loader invariants
 
 1. **Load-time validation** — a pack missing required keys, with an unparsable

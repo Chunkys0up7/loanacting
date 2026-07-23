@@ -33,7 +33,14 @@ defmodule LoanActor.Tools.AssessViaLlm do
 
   @impl LoanActor.Tool
   def execute(args, ctx) do
-    case adapter().assess(args, []) do
+    case adapter() do
+      nil -> {:error, :not_configured}
+      module -> dispatch(module, args)
+    end
+  end
+
+  defp dispatch(module, args) do
+    case module.assess(args, []) do
       {:ok, output} -> {:ok, %{escalation_output: output}}
       {:error, mode} -> {:ok, %{escalation_fallback: mode}}   # see Failure modes below
     end
@@ -44,8 +51,19 @@ end
 Note the tool-behaviour contract's own shape: an adapter *failure* still returns `{:ok, effects}`
 from the TOOL's own perspective (the tool succeeded at doing its job — determining that the LLM
 failed and applying the defined fallback) — `{:error, _}` at the tool level is reserved for the
-tool itself malfunctioning (e.g. args validation failure), not for the LLM's own failure modes,
-which are first-class, expected, deterministically-handled outcomes, not tool errors.
+tool itself malfunctioning (e.g. args validation failure, or no adapter configured at all — see
+below), not for the LLM's own failure modes, which are first-class, expected,
+deterministically-handled outcomes, not tool errors.
+
+**No adapter configured is a tool malfunction, not a fifth LLM failure mode** (resolved during
+`/speckit-checklist`, finding CHK012) — `{:error, :not_configured}` at the tool level, diary
+`:tool_failed` per the standard foundation path every tool already has (`tool-behaviour.md`
+invariant 5's args-validation-failure path is the closest existing precedent: a config problem,
+not a judgment call the LLM couldn't make). This is deliberately distinct from the four
+FR-006 failure modes below, which are all about an LLM that DID respond in some fashion — an
+unconfigured adapter never got the chance to respond at all. A deployment that registers
+`assess_via_llm` in `config :loan_actor, :tools` without also configuring an adapter module is a
+genuine operational error, not a scenario FR-006's fail-closed policy needs to cover.
 
 ## Failure modes (FR-006 — every one has ONE deterministic fallback, no exceptions)
 
@@ -54,7 +72,17 @@ which are first-class, expected, deterministically-handled outcomes, not tool er
 | `:timeout` | Adapter does not respond within a configured deadline. | Escalation resolves as `{:fallback, :timeout}`; the gate's outcome is treated as `:fail` (fail-closed — an unanswered judgment call does not silently pass). |
 | `:malformed_output` | Adapter responds, but the output cannot be parsed into the shape the escalating gate expects. | Same fail-closed fallback as `:timeout` — `{:fallback, :malformed_output}`, gate outcome `:fail`. |
 | `:refusal` | Adapter explicitly declines to answer. | `{:fallback, :refusal}`, gate outcome `:fail`. Distinguished from `:malformed_output` in the diary (different `failure_mode` value) even though the practical outcome is the same — an auditor needs to tell "the model said no" from "the model's answer was garbage," even if both fail closed identically today. |
-| `:low_confidence` | Adapter responds with a confidence signal below a configured threshold. | `{:fallback, :low_confidence}`, gate outcome `:fail`. Same fail-closed policy — a low-confidence "maybe pass" is not a pass. |
+| `:low_confidence` | Adapter responds with a confidence signal below a threshold. | `{:fallback, :low_confidence}`, gate outcome `:fail`. Same fail-closed policy — a low-confidence "maybe pass" is not a pass. |
+
+**The `:low_confidence` threshold itself is an adapter-configuration concern, not defined by
+this port** (clarified during `/speckit-checklist`, finding CHK006) — consistent with
+`research.md` R-1 scoping a real vendor adapter out of this feature's own delivery (port + test
+double only), the specific numeric/qualitative threshold that decides "low" is whatever the
+eventual concrete adapter implementation configures, since it is inherently model-specific (a
+threshold meaningful for one model's confidence scale may not transfer to another's). This
+port's own contract only requires that SOME threshold exists and that crossing it deterministically
+produces `{:error, {:low_confidence, score}}` — the recorded-fixture test double picks an
+arbitrary, documented threshold for its own contract-test fixtures, not a real one.
 
 **All four modes fail closed to `:fail`, never to `:pass`.** This is a deliberate, uniform
 policy (not decided per-mode) — an escalation exists because the deterministic path couldn't

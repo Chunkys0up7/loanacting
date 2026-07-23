@@ -221,7 +221,7 @@ Expected tracks (final sequencing + dependency graph is `/speckit-tasks`'s job, 
 | The predicate DSL grows into an accidental programming language | Hard cap pinned in `contracts/gate-behaviour.md`; extension requires its own amendment (mirrors the `tool-behaviour.md`/`skill-format.md` precedent). |
 | LLM fixture-based contract tests drift from live model behavior | Fixtures versioned with the adapter; a scheduled (non-CI-blocking) live smoke job re-records and diffs — mirrors this project's own `ci-nightly.yml` precedent for genuinely-slow/external-dependent checks. |
 | Assessment-on-every-loop-pass blows the reactive-loop latency budget | Load-test extension (Phase 2 track 8) is the early-warning gate, exactly as `FT-035` was for the tool-call ceremony in intent 0004. Incremental facts (R-3) is the designed fallback if recompute-every-pass is too expensive. |
-| Principle III's itemized escalation fields (full output in cleartext) may conflict with Principle VIII's hash-only tool-diary rule | Raised directly as R-4, not assumed — this is exactly the kind of ambiguity this project's own discipline (Q12/Q14/Q15 precedent) says to resolve explicitly before implementation, not guess. |
+| Principle III's itemized escalation fields (full output in cleartext) initially looked like it might conflict with a "tool diary entries are hash-only" rule | Raised directly as R-4, not assumed. On careful re-reading (confirmed twice — `/speckit-analyze` finding C1 and `/speckit-checklist` finding CHK022), the constitution's own literal text does not actually state a blanket hash-only rule; that convention is `tool-behaviour.md`'s (a contract, not the constitution), and is left fully intact — only a new, separate diary type carries cleartext, never the standard tool-invocation pair. No constitution amendment needed. |
 | A second non-deterministic-adjacent gap like intent 0001's goal-content-replay finding | This feature's own replay property (SC-005) explicitly targets assessments/decisions/escalations from day one, rather than discovering the gap post-hoc during a later audit. |
 
 ## Re-check after Phase 1
@@ -233,8 +233,16 @@ each gate that was ⚠ or open at Phase 0:
 - **Principle III (deterministic-first, LLM-escalated)** → ✅. `contracts/llm-escalation-port.md`
   names the exact one call site, the exact 4 failure modes with a uniform fail-closed policy, and
   the constitution's own itemized escalation-diary fields are resolved explicitly in
-  `data-model.md`'s `:escalation_resolved` entry (not left as "diary-logged" in the abstract).
-  R-4 resolved the apparent tension with Principle VIII directly rather than leaving it implicit.
+  `data-model.md`'s `:escalation_resolved`/`:escalation_failed`/`:escalated` entries (not left as
+  "diary-logged" in the abstract) — all seven itemized fields (trigger, prompt id, model,
+  version, full input hash, full output, decision delta) now have a named home. R-4's apparent
+  tension with Principle VIII was investigated more carefully during `/speckit-analyze` (finding
+  C1) and again during `/speckit-checklist`: the constitution's own literal text scopes its
+  hash-only language to PII specifically (Principle IV) and states no blanket hash-only rule at
+  all (Principle VIII) — the actual hash-only convention lives in `tool-behaviour.md`, a
+  spec-001 CONTRACT, not the constitution. This is a documentation-clarity matter, resolved by
+  being explicit (`data-model.md`'s own scoping sentence), not a constitution conflict requiring
+  an amendment.
 - **Anti-vibe / gate-DSL-cap concern** → ✅. `contracts/gate-behaviour.md` pins the exact grammar;
   `research.md` R-2 documents why (mirrors the existing JSON-schema-subset and front-matter-grammar
   caps this project already has precedent for).

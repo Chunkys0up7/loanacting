@@ -69,11 +69,40 @@ activates zero skills," extended to gates.
 6. **`gate_id` uniqueness is NOT enforced by the loader** — two packs may legitimately share a
    `gate_id` across versions (an updated gate pack, same `gate_id`, higher `version`); FR-011's
    per-loan version pinning is what disambiguates which version a given loan's decision used, not
-   a loader-level uniqueness constraint.
-7. **A gate pack missing `gate_id` or `rule`, or whose `rule` violates `gate-behaviour.md`'s
+   a loader-level uniqueness constraint. **When multiple currently-loaded packs share a
+   `gate_id` (resolved during `/speckit-checklist`, finding CHK002), the loader picks the
+   HIGHEST `version` (semver comparison, same ordering skill/gate packs already declare via
+   their own required `version` field) as "current" for any loan evaluating that `gate_id` for
+   the first time.** This is a deterministic tie-break, not an error — the same situation
+   FR-011 already anticipates (a pack update while loans are mid-flight), just stated
+   explicitly for the moment two versions are simultaneously ON DISK rather than sequential.
+8. **Gate packs are additive-only on disk — updating a gate pack means adding a new version's
+   own pack directory, never overwriting or deleting an old one in place (resolved during
+   `/speckit-checklist`, findings CHK008/CHK019).** FR-011 pins a loan to the gate-pack version
+   active when it first evaluates a gate — that guarantee is hollow if the underlying pack
+   content can later be deleted or overwritten out from under a loan that pinned it. Concretely:
+   `priv/skills/<gate-id-slug>-v<version>/` (or an equivalent version-suffixed directory
+   convention) for gate packs specifically — unlike ordinary skill packs, which have no
+   per-loan pinning concept and so have no equivalent retention requirement. This also means a
+   `%Decision{}`'s `gate_version` is always resolvable back to the EXACT rule content that
+   produced it (CHK019) — an auditor is never left with only a version string and no way to see
+   what that version actually checked.
+9. **A gate pack missing `gate_id` or `rule`, or whose `rule` violates `gate-behaviour.md`'s
    hard-capped grammar, is rejected at load time** — same "skipped with a logged reason, never
    silently evaluated as if valid" discipline as every other rejection path in `skill-format.md`
    invariant 1, extended to these two new required fields.
+
+## Recovery from a rejected pack (resolved during `/speckit-checklist`, finding CHK013)
+
+A rejected gate pack (invariant 9 above) never produces an `%Escalation{}` — the gate simply
+never fired, so there is nothing pending to resolve. No special retry/recovery mechanism is
+needed: the NEXT loop pass (reactive/periodic/planning) re-attempts trigger matching and
+evaluation fresh, using whatever pack state exists on disk at that moment (the same "every pass
+recomputes" model this feature already uses everywhere else). Once the pack is corrected and
+reloaded, the very next pass picks it up automatically — no operator action, no separate
+recovery API. This is a materially different situation from an escalation raised by a genuine
+`:indeterminate` outcome (which DOES have a pending, diary-tracked state to resolve, per
+`data-model.md`'s `%Escalation{}`).
 
 ## Demonstration gate pack
 

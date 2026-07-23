@@ -77,6 +77,9 @@ Updated by `/speckit-implement` as each task lands. Absent = not started.
   missing either field (for packs whose `tools_required` includes `evaluate_gate`) or whose
   `rule` violates ADH-003's hard-capped grammar. `Skill.Loader.match/2`'s `loan_context` input
   extended with an `assessment:` key per `research.md` R-5 (algorithm unchanged, input enriched).
+  Per `/speckit-checklist` findings CHK002/CHK008/CHK019: gate packs are additive-only on disk
+  (a version, once loaded, is never deleted/overwritten); when multiple currently-loaded packs
+  share a `gate_id`, the loader picks the highest `version` as current.
 - Tests: `test/skill/gate_pack_loader_test.exs` against new fixture packs under
   `test/fixtures/skills/` (valid gate pack, missing `gate_id`, missing `rule`, malformed `rule`
   grammar) — mirrors the existing valid/bad-front-matter/unresolvable-tools/multi-file catalog
@@ -183,7 +186,9 @@ escalation, not a silent guess either way (spec.md Acceptance Scenarios 1-3).
 ### ADH-012 [US2] — `%LoanActor.Escalation{}` + `:indeterminate` → escalation wiring
 - Deliverable: `lib/loan_actor/escalation.ex` (struct per `data-model.md`); Server wiring routing
   an `:indeterminate` `evaluate_gate` outcome to an escalation (never a `:decision`), appending
-  `:escalated` with `escalation_id`/`gate_id`/`gate_version`/`trigger`/`target`.
+  `:escalated` with `escalation_id`/`gate_id`/`gate_version`/`trigger`/`target`/`input_hash`.
+  Server-side `gen_state.escalations` mirrors the existing `hitl_requests` map shape — multiple
+  simultaneous pending escalations per loan are allowed (`/speckit-checklist` finding CHK016).
 - Tests: `test/server_escalation_test.exs` — `:indeterminate` produces exactly one escalation,
   never a decision; `:pass`/`:fail` never produce an escalation (the boundary this whole feature
   exists to prove precisely).
@@ -214,8 +219,11 @@ escalation, not a silent guess either way (spec.md Acceptance Scenarios 1-3).
 
 ### ADH-015 [US2] — `assess_via_llm` tool + fail-closed fallback wiring
 - Deliverable: `lib/loan_actor/tools/assess_via_llm.ex` — the ONE call site for ADH-014's
-  adapter; on adapter success, `:escalation_resolved` with cleartext `output` (post-PIIGuard,
-  per `research.md` R-4); on any of the 4 failure modes, `:escalation_failed` + the gate outcome
+  adapter; `{:error, :not_configured}` (tool-level failure, `:tool_failed`) if no adapter module
+  is configured (`/speckit-checklist` finding CHK012 — distinct from the 4 LLM-response failure
+  modes below); on adapter success, `:escalation_resolved` with cleartext `output`
+  (post-PIIGuard, per `research.md` R-4) plus `prompt_id`/`model`/`model_version`/
+  `decision_delta_hash`; on any of the 4 failure modes, `:escalation_failed` + the gate outcome
   treated as `:fail` (uniform fail-closed policy, `llm-escalation-port.md`).
 - Tests: `test/tools/assess_via_llm_test.exs` (shared tool suite) + one test per failure mode
   asserting the exact `:escalation_failed`/`fail` outcome; one test for the PIIGuard-rejects-

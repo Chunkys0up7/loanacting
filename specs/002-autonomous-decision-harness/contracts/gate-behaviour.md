@@ -75,13 +75,18 @@ via `:indeterminate` if the ambiguity is genuinely data-dependent rather than a 
   data.
 - **`:fail`** — every predicate (per the combinator) evaluated false against present,
   unambiguous data. `:fail` is a confident negative, not "couldn't tell."
-- **`:indeterminate`** — a predicate references a field that is structurally absent from the
-  assessment/state (not merely a `false`/empty value — an actual missing capability the DSL has
-  no operator for, e.g. a field the assessment doesn't yet compute), OR the gate pack's own
-  front-matter declares a fact as "escalate if absent" explicitly. `:indeterminate` is a rule
-  *design* decision (which absences count as "ask a human/LLM" vs. "this counts as fail"), not
-  an engine-level ambiguity — the engine's job is to report exactly which condition produced it
-  (the `cause` field), not to guess.
+- **`:indeterminate`** — exactly two distinct sources, both surfaced identically to the caller
+  via the `cause` field, but worth naming separately for a reader classifying a test scenario
+  (clarified during `/speckit-checklist`, finding CHK005): (a) **engine-level** — a predicate
+  references a field that is structurally absent from the assessment/state (an actual missing
+  capability, e.g. a field the assessment doesn't yet compute — the DSL genuinely cannot
+  evaluate this predicate, full stop), or (b) **rule-design-level** — the gate pack's own
+  front-matter explicitly declares a fact as "escalate if absent" even though the DSL COULD
+  evaluate it as `false`/absent (the rule author chose ambiguity-as-a-feature over a confident
+  fail). Both produce `:indeterminate`; the `cause` field's own text (not a separate outcome
+  value) is what tells the two apart for anyone reading the diary. `:indeterminate` is never an
+  engine-level GUESS — the engine's job is to report exactly which of (a)/(b) produced it, not
+  to have its own ambiguity about whether to escalate.
 
 ## Invariants (extends `tool-behaviour.md`'s invariants 1-6 — does not replace them)
 
@@ -91,6 +96,28 @@ via `:indeterminate` if the ambiguity is genuinely data-dependent rather than a 
 8. **Version pinning is a Server-level concern, not this tool's** — `evaluate_gate` always
    evaluates whatever gate-pack version the Server hands it via `ctx`; FR-011's per-loan pinning
    is enforced by which version the Server resolves and passes in, not by logic inside this tool.
+9. **Engine-level failure is a tool failure, not a gate outcome** (resolved during
+   `/speckit-checklist`, finding CHK001) — if `evaluate_gate` itself raises or would otherwise
+   return a shape outside `:pass`/`:fail`/`:indeterminate` (a bug in the engine, not a gate
+   pack's content), this is NOT a fourth outcome value: it is an ordinary tool malfunction,
+   already handled generically by the foundation registry's existing rescue path
+   (`tool-behaviour.md`'s own invariant 4 — `:tool_failed`, full ToolCall sequence still
+   emitted). No new mechanism needed; this invariant exists only to say so explicitly rather
+   than leave a reader to infer it.
+10. **Evaluation order across multiple matched gates in the same pass is deterministic but
+    input-independent** (resolved during `/speckit-checklist`, finding CHK015) — every gate
+    matched in a given loop pass evaluates against the SAME single `%Assessment{}` snapshot
+    (spec.md Edge Cases: "a rule never evaluates against a mix of before/after data from the
+    same pass"), so no gate's INPUT depends on another gate's outcome within that pass, and
+    evaluation order among them is irrelevant to correctness. The Server still applies the
+    resulting effects (decisions/escalations) in a fixed, deterministic order (sorted by
+    `gate_id`) purely for diary-ordering determinism/replay-reproducibility — not because
+    ordering affects any gate's own result.
+11. **Predicate-list size is bounded by the DSL's own hard cap** (R-2's one-level-of-nesting,
+    fixed operator set) — no separate performance requirement is needed for `evaluate_gate`
+    itself beyond what that cap already guarantees (resolved during `/speckit-checklist`,
+    finding CHK014); `plan.md`'s Performance Goals note is about the LOOP PASS's aggregate cost
+    (assessment + all matched gates), not this tool's own per-call cost in isolation.
 
 ## Test pins
 
