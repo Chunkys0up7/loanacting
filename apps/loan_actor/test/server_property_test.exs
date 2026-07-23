@@ -98,6 +98,15 @@ defmodule LoanActor.ServerPropertyTest do
     )
   end
 
+  # ExUnit's default 60_000ms per-test timeout is fine for the local
+  # (max_runs: 25) path but was never actually proven against the real
+  # CI (max_runs: 10_000) path until the first genuinely green CI run —
+  # this repo's own workflow file rejected every run outright before
+  # then (see audit.md's CI-run deviation entry). 10,000 real
+  # spawn+crash+restart cycles takes far longer than 60s; :infinity
+  # mirrors the same tag nfr_load_test.exs/large_diary_replay_test.exs
+  # already use for their own genuinely-slow tests.
+  @tag timeout: :infinity
   property "every legal walk through a real Server survives a crash + rehydration with identical state, tool-invocation entries included" do
     check all(event_types <- Factory.legal_event_walk_gen(), max_runs: @max_runs) do
       loan_id = Factory.unique_loan_id()
