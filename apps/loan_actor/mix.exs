@@ -16,6 +16,7 @@ defmodule LoanActor.MixProject do
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [
         "test.load": :test,
+        "test.slow": :test,
         "test.smoke": :test
       ]
     ]

@@ -10,7 +10,7 @@ defmodule LoanAsActor.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      preferred_cli_env: ["test.load": :test, "test.smoke": :test],
+      preferred_cli_env: ["test.load": :test, "test.slow": :test, "test.smoke": :test],
       dialyzer: [
         plt_add_apps: [:mnesia, :ex_unit, :mix],
         flags: [:error_handling, :unknown, :unmatched_returns, :no_opaque]
@@ -39,6 +39,7 @@ defmodule LoanAsActor.MixProject do
       # Running from the umbrella root (deps declared here) has full access
       # to both this project's deps AND loan_actor's.
       "test.load": ["test --only load"],
+      "test.slow": ["test --only slow"],
       "test.smoke": ["test --only smoke"]
     ]
   end
