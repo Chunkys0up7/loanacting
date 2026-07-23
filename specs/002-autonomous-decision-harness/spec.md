@@ -203,9 +203,13 @@ does — proving rules are additive content, not code changes.
 - **SC-001**: A loan spawned with a goal and fed a scripted event stream reaches `:completed`
   with zero operator interaction when every applicable rule passes, verified end-to-end against
   a real running actor and a real diary store.
-- **SC-002**: A demonstration rule pack of at least three distinct rules evaluates correctly
-  against a representative set of loan situations, with every outcome (`pass`/`fail`/
-  `indeterminate`) diary-logged carrying the rule's identity, version, and cause.
+- **SC-002**: A demonstration rule pack of at least three distinct rules, together covering every
+  predicate operator and combinator `contracts/gate-behaviour.md` defines, evaluates against a
+  factory-generated set of at least ten loan situations designed to produce all three outcomes
+  (`pass`/`fail`/`indeterminate`) at least once — each evaluation's outcome must match the
+  expected result for that situation, and every one is diary-logged carrying the rule's identity,
+  version, and cause. *(Tightened 2026-07-23 per `/speckit-analyze` finding A1 — "correctly"/
+  "representative" were unmeasurable as originally worded.)*
 - **SC-003**: Every one of the defined automated-escalation failure modes (timeout, malformed
   output, refusal, low-confidence) is independently demonstrated to produce its specific,
   deterministic fallback and a diary entry — none left unhandled.

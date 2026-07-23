@@ -134,13 +134,19 @@ zero operator interaction when every applicable gate passes (SC-001).
 **Independent Test**: Per spec.md's own Acceptance Scenario 1 — spawn, set goal, script events,
 assert zero-operator-action completion + one assessment/gate-evaluation diary entry per pass.
 
-### ADH-009 [P] [US1] — Demonstration gate pack (≥3 rules)
-- Deliverable: `priv/skills/0002-demo-gate-pack/` — at least 3 distinct rules exercising
-  different operators/combinators, mirroring `0001-demo-document-request/`'s role as a real,
-  exercised example (per `gate-pack-format.md`).
-- Tests: covered by ADH-010's end-to-end test + ADH-005's loader tests (this task is content,
-  not code — no separate unit test beyond "it loads," already covered).
-- Taxonomy: n/a (content pack; its EFFECT is tested by ADH-010).
+### ADH-009 [P] [US1] — Demonstration gate pack (≥3 rules) + scale test (SC-002)
+- Deliverable: `priv/skills/0002-demo-gate-pack/` — at least 3 distinct rules, together covering
+  every predicate operator and combinator `contracts/gate-behaviour.md` defines, mirroring
+  `0001-demo-document-request/`'s role as a real, exercised example (per `gate-pack-format.md`).
+- Tests: `test/demo_gate_pack_test.exs` — a factory-generated set of ≥10 loan situations
+  (test-data-forge: `Factory` gains a situation-generator covering all 3 outcomes at least once
+  per SC-002's tightened wording), asserting each evaluation's outcome matches the expected
+  result and is diary-logged with the rule's identity, version, and cause. Distinct from
+  ADH-010's end-to-end test (which proves zero-operator-interaction completion, SC-001, not this
+  scale/coverage claim).
+- Taxonomy: happy / boundary (this task's own test IS SC-002's proof — previously miscategorized
+  as "n/a, covered by ADH-010," corrected during `/speckit-analyze`: SC-001 and SC-002 are
+  distinct claims needing distinct proof).
 - Depends on: ADH-005.
 
 ### ADH-010 [US1] — End-to-end autonomous-progress test (SC-001)
@@ -328,7 +334,7 @@ ADH-011 + ADH-016 + ADH-018 ─► ADH-019 ─► ADH-020 ─► ADH-021        
 | Category | Tasks covering it |
 |---|---|
 | Happy | All production tasks. |
-| Boundary | ADH-002, ADH-003, ADH-006, ADH-007, ADH-012, ADH-015, ADH-018. |
+| Boundary | ADH-002, ADH-003, ADH-006, ADH-007, ADH-009, ADH-012, ADH-015, ADH-018. |
 | Error | ADH-003, ADH-004, ADH-005, ADH-013, ADH-014, ADH-015, ADH-016, ADH-018. |
 | Race | ADH-013. |
 | Replay | ADH-002, ADH-004, ADH-007, ADH-008, ADH-013, ADH-019. |
